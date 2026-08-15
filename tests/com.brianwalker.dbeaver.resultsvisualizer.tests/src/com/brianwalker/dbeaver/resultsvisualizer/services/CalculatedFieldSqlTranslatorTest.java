@@ -29,6 +29,37 @@ public class CalculatedFieldSqlTranslatorTest {
                 translator.translateExpression("MIN([amount], 1000) + MAX([amount], 0)"));
     }
 
+    @Test public void translatesModToPercentOperatorForCrossDialectSupport() {
+        CalculatedFieldSqlTranslator translator = new CalculatedFieldSqlTranslator(
+                List.of(column(0, "amount")), List.of());
+        assertEquals("((\"amount\") % (10))", translator.translateExpression("MOD([amount], 10)"));
+    }
+
+    @Test public void translatesIfToStandardCaseWhenExpression() {
+        CalculatedFieldSqlTranslator translator = new CalculatedFieldSqlTranslator(
+                List.of(column(0, "amount")), List.of());
+        assertEquals("CASE WHEN \"amount\" > 0 THEN \"amount\" ELSE 0 END",
+                translator.translateExpression("IF([amount] > 0, [amount], 0)"));
+    }
+
+    @Test public void leavesComparisonsAndBooleanOperatorsAsStandardSql() {
+        CalculatedFieldSqlTranslator translator = new CalculatedFieldSqlTranslator(
+                List.of(column(0, "amount"), column(1, "cost")), List.of());
+        assertEquals("\"amount\" > 0 AND \"cost\" <= 10 OR NOT \"amount\" = \"cost\"",
+                translator.translateExpression("[amount] > 0 AND [cost] <= 10 OR NOT [amount] = [cost]"));
+        assertEquals("COALESCE(\"amount\", \"cost\")",
+                translator.translateExpression("COALESCE([amount], [cost])"));
+        assertEquals("NULLIF(\"amount\", \"cost\")",
+                translator.translateExpression("NULLIF([amount], [cost])"));
+    }
+
+    @Test public void translatesNestedModAndIfCallsUsingParenAwareArgumentSplitting() {
+        CalculatedFieldSqlTranslator translator = new CalculatedFieldSqlTranslator(
+                List.of(column(0, "amount"), column(1, "cost")), List.of());
+        assertEquals("CASE WHEN ((\"amount\") % (\"cost\" + 1)) > 0 THEN \"amount\" ELSE \"cost\" END",
+                translator.translateExpression("IF(MOD([amount], [cost] + 1) > 0, [amount], [cost])"));
+    }
+
     @Test public void usesConfiguredIdentifierQuoteStyleAcrossCalculatedFieldSql() {
         DBeaverSqlDialectService.installQuoteString("`");
         try {

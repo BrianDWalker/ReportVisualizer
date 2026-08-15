@@ -11,7 +11,27 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Recursive-descent compiler for the deliberately small calculated-field grammar. */
+/**
+ * Recursive-descent compiler for the deliberately small calculated-field grammar.
+ *
+ * <p>Grammar (loosest to tightest precedence):
+ * <pre>
+ * expression -> or
+ * or         -> and ('OR' and)*
+ * and        -> not ('AND' not)*
+ * not        -> 'NOT' not | comparison
+ * comparison -> additive (('=' | '&lt;&gt;' | '!=' | '&gt;' | '&lt;' | '&gt;=' | '&lt;=') additive)?
+ * additive   -> term (('+' | '-') term)*
+ * term       -> unary (('*' | '/') unary)*
+ * unary      -> ('+' | '-')? primary
+ * primary    -> '(' expression ')' | field | number | function
+ * </pre>
+ * Boolean results (comparisons, AND/OR/NOT) are represented as {@code 1.0}/{@code 0.0}, with
+ * {@code null} used for SQL-style "unknown" propagation: AND/OR/NOT return {@code null} if
+ * either operand is {@code null}, a deliberate simplification of full three-valued logic that
+ * keeps the grammar small while still failing safe (a formula that can't be evaluated renders
+ * as blank rather than a wrong number).
+ */
 public final class ExpressionCompiler {
     private ExpressionCompiler() {}
 
@@ -76,6 +96,82 @@ public final class ExpressionCompiler {
         }
     }
 
+    /** Single, non-chained comparison. Returns {@code null} ("unknown") if either side is null. */
+    private record ComparisonNode(String operator, Node left, Node right) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double a = left.evaluate(values);
+            Double b = right.evaluate(values);
+            if (a == null || b == null) return null;
+            int comparison = Double.compare(a, b);
+            boolean result = switch (operator) {
+                case "=" -> comparison == 0;
+                case "<>", "!=" -> comparison != 0;
+                case ">" -> comparison > 0;
+                case "<" -> comparison < 0;
+                case ">=" -> comparison >= 0;
+                case "<=" -> comparison <= 0;
+                default -> throw new IllegalStateException("Unsupported comparison operator.");
+            };
+            return result ? 1.0 : 0.0;
+        }
+    }
+
+    private record AndNode(Node left, Node right) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double a = left.evaluate(values);
+            Double b = right.evaluate(values);
+            if (a == null || b == null) return null;
+            return (a != 0 && b != 0) ? 1.0 : 0.0;
+        }
+    }
+
+    private record OrNode(Node left, Node right) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double a = left.evaluate(values);
+            Double b = right.evaluate(values);
+            if (a == null || b == null) return null;
+            return (a != 0 || b != 0) ? 1.0 : 0.0;
+        }
+    }
+
+    private record NotNode(Node operand) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double value = operand.evaluate(values);
+            if (value == null) return null;
+            return value == 0 ? 1.0 : 0.0;
+        }
+    }
+
+    /** Returns the first non-null argument, or {@code null} if all arguments are null. */
+    private record CoalesceNode(List<Node> arguments) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            for (Node argument : arguments) {
+                Double value = argument.evaluate(values);
+                if (value != null) return value;
+            }
+            return null;
+        }
+    }
+
+    /** Returns {@code null} if the two arguments are equal, otherwise returns the first argument. */
+    private record NullIfNode(Node left, Node right) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double a = left.evaluate(values);
+            if (a == null) return null;
+            Double b = right.evaluate(values);
+            return b != null && a.doubleValue() == b.doubleValue() ? null : a;
+        }
+    }
+
+    /** Ternary conditional; the condition is treated as false only when exactly zero. */
+    private record IfNode(Node condition, Node whenTrue, Node whenFalse) implements Node {
+        @Override public Double evaluate(List<Object> values) {
+            Double conditionValue = condition.evaluate(values);
+            if (conditionValue == null) return null;
+            return conditionValue != 0 ? whenTrue.evaluate(values) : whenFalse.evaluate(values);
+        }
+    }
+
     private record FunctionNode(String name, List<Node> arguments) implements Node {
         @Override public Double evaluate(List<Object> values) {
             List<Double> evaluated = new ArrayList<>(arguments.size());
@@ -98,6 +194,16 @@ public final class ExpressionCompiler {
                 case "POWER" -> Math.pow(evaluated.get(0), evaluated.get(1));
                 case "MIN" -> Math.min(evaluated.get(0), evaluated.get(1));
                 case "MAX" -> Math.max(evaluated.get(0), evaluated.get(1));
+                case "LOG" -> {
+                    double value = evaluated.get(0);
+                    if (value <= 0) yield null;
+                    if (evaluated.size() == 1) yield Math.log(value);
+                    double base = evaluated.get(1);
+                    if (base <= 0 || base == 1) yield null;
+                    yield Math.log(value) / Math.log(base);
+                }
+                case "EXP" -> Math.exp(evaluated.get(0));
+                case "MOD" -> evaluated.get(1) == 0 ? null : evaluated.get(0) % evaluated.get(1);
                 default -> null;
             };
             return result == null ? null : finite(result);
@@ -117,6 +223,9 @@ public final class ExpressionCompiler {
     private static Double finite(double value) { return Double.isFinite(value) ? value : null; }
 
     private static final class Parser {
+        private static final List<String> COMPARISON_OPERATORS =
+                List.of("<>", "!=", ">=", "<=", ">", "<", "=");
+
         private final String input;
         private final Map<String, Integer> fields;
         private int position;
@@ -127,6 +236,42 @@ public final class ExpressionCompiler {
         }
 
         Node parseExpression() throws CalculatedFieldException {
+            return parseOr();
+        }
+
+        Node parseOr() throws CalculatedFieldException {
+            Node value = parseAnd();
+            while (true) {
+                skipWhitespace();
+                if (matchKeyword("OR")) value = new OrNode(value, parseAnd());
+                else return value;
+            }
+        }
+
+        Node parseAnd() throws CalculatedFieldException {
+            Node value = parseNot();
+            while (true) {
+                skipWhitespace();
+                if (matchKeyword("AND")) value = new AndNode(value, parseNot());
+                else return value;
+            }
+        }
+
+        Node parseNot() throws CalculatedFieldException {
+            skipWhitespace();
+            if (matchKeyword("NOT")) return new NotNode(parseNot());
+            return parseComparison();
+        }
+
+        Node parseComparison() throws CalculatedFieldException {
+            Node value = parseAdditive();
+            skipWhitespace();
+            String operator = matchComparisonOperator();
+            if (operator == null) return value;
+            return new ComparisonNode(operator, value, parseAdditive());
+        }
+
+        Node parseAdditive() throws CalculatedFieldException {
             Node value = parseTerm();
             while (true) {
                 skipWhitespace();
@@ -203,26 +348,6 @@ public final class ExpressionCompiler {
             int start = position;
             while (!atEnd() && Character.isLetter(current())) position++;
             String name = input.substring(start, position).toUpperCase(Locale.ROOT);
-            int minimumArguments;
-            int maximumArguments;
-            switch (name) {
-                case "ABS", "CEIL", "FLOOR", "SQRT" -> {
-                    minimumArguments = 1;
-                    maximumArguments = 1;
-                }
-                case "ROUND" -> {
-                    minimumArguments = 1;
-                    maximumArguments = 2;
-                }
-                case "POWER", "MIN", "MAX" -> {
-                    minimumArguments = 2;
-                    maximumArguments = 2;
-                }
-                default -> {
-                    fail("Unknown function: " + name);
-                    return null;
-                }
-            }
             skipWhitespace();
             if (!match('(')) fail("Expected '(' after " + name);
             List<Node> arguments = new ArrayList<>();
@@ -232,24 +357,95 @@ public final class ExpressionCompiler {
                     arguments.add(parseExpression());
                     skipWhitespace();
                     if (!match(',')) break;
+                    skipWhitespace();
                 }
             }
             skipWhitespace();
             if (!match(')')) fail("Missing closing ')' for " + name);
-            if (arguments.size() < minimumArguments || arguments.size() > maximumArguments) {
-                fail(name + " expects " + (minimumArguments == maximumArguments
-                        ? minimumArguments : minimumArguments + " or " + maximumArguments)
-                        + " argument(s)");
+            return buildFunctionNode(name, arguments);
+        }
+
+        private Node buildFunctionNode(String name, List<Node> arguments) throws CalculatedFieldException {
+            return switch (name) {
+                case "COALESCE" -> {
+                    if (arguments.isEmpty()) fail("COALESCE expects at least 1 argument(s)");
+                    yield new CoalesceNode(List.copyOf(arguments));
+                }
+                case "NULLIF" -> {
+                    requireArgumentCount(name, arguments, 2, 2);
+                    yield new NullIfNode(arguments.get(0), arguments.get(1));
+                }
+                case "IF" -> {
+                    requireArgumentCount(name, arguments, 3, 3);
+                    yield new IfNode(arguments.get(0), arguments.get(1), arguments.get(2));
+                }
+                case "ABS", "CEIL", "FLOOR", "SQRT", "EXP" -> {
+                    requireArgumentCount(name, arguments, 1, 1);
+                    yield new FunctionNode(name, List.copyOf(arguments));
+                }
+                case "ROUND", "LOG" -> {
+                    requireArgumentCount(name, arguments, 1, 2);
+                    yield new FunctionNode(name, List.copyOf(arguments));
+                }
+                case "POWER", "MIN", "MAX", "MOD" -> {
+                    requireArgumentCount(name, arguments, 2, 2);
+                    yield new FunctionNode(name, List.copyOf(arguments));
+                }
+                default -> {
+                    fail("Unknown function: " + name);
+                    yield null;
+                }
+            };
+        }
+
+        private void requireArgumentCount(String name, List<Node> arguments, int minimum, int maximum)
+                throws CalculatedFieldException {
+            if (arguments.size() < minimum || arguments.size() > maximum) {
+                fail(name + " expects " + (minimum == maximum
+                        ? minimum : minimum + " or " + maximum) + " argument(s)");
             }
-            return new FunctionNode(name, List.copyOf(arguments));
         }
 
         void skipWhitespace() { while (!atEnd() && Character.isWhitespace(current())) position++; }
+
         boolean match(char expected) {
             if (atEnd() || current() != expected) return false;
             position++;
             return true;
         }
+
+        /**
+         * Matches a case-insensitive whole-word keyword (e.g. {@code AND}/{@code OR}/{@code NOT})
+         * at the current position without consuming input on failure. The caller is responsible
+         * for calling {@link #skipWhitespace()} first, consistent with {@link #match(char)}.
+         */
+        boolean matchKeyword(String keyword) {
+            int length = keyword.length();
+            if (position + length > input.length()) return false;
+            if (!input.regionMatches(true, position, keyword, 0, length)) return false;
+            if (position + length < input.length()) {
+                char next = input.charAt(position + length);
+                if (Character.isLetterOrDigit(next) || next == '_') return false;
+            }
+            position += length;
+            return true;
+        }
+
+        /** Matches the longest applicable comparison operator, or returns {@code null}. */
+        String matchComparisonOperator() {
+            for (String operator : COMPARISON_OPERATORS) {
+                if (startsWith(operator)) {
+                    position += operator.length();
+                    return operator;
+                }
+            }
+            return null;
+        }
+
+        boolean startsWith(String token) {
+            return input.regionMatches(position, token, 0, token.length());
+        }
+
         boolean atEnd() { return position >= input.length(); }
         char current() { return input.charAt(position); }
         void fail(String message) throws CalculatedFieldException {

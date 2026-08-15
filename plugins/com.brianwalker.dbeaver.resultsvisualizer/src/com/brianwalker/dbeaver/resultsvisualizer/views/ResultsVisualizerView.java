@@ -7,6 +7,7 @@ package com.brianwalker.dbeaver.resultsvisualizer.views;
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldDefinition;
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldProjection;
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldService;
+import com.brianwalker.dbeaver.resultsvisualizer.model.NormalizedDataType;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultColumn;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetSnapshot;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetUpdate;
@@ -59,6 +60,8 @@ import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Label;
+import org.eclipse.swt.widgets.Menu;
+import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.ui.part.ViewPart;
 
 /** Dockable interactive visualization builder driven by the active DBeaver result set. */
@@ -92,6 +95,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private Button slicersButton;
     private Button sourceQueryButton;
     private Button sortButton;
+    private Button backToOriginalButton;
     private ChartCanvas chartCanvas;
     private Combo chartTypeCombo;
     private Combo aggregationCombo;
@@ -111,6 +115,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private List<DimensionChoice> xWellChoices = List.of();
     private List<DimensionChoice> seriesWellChoices = List.of();
     private List<Integer> valueWellIndexes = List.of();
+    private List<Aggregation> availableAggregations = List.of(Aggregation.values());
     private List<DimensionChoice> matrixRows = new ArrayList<>();
     private List<DimensionChoice> matrixColumns = new ArrayList<>();
     private List<DimensionChoice> matrixValues = new ArrayList<>();
@@ -120,10 +125,12 @@ public final class ResultsVisualizerView extends ViewPart {
     private AggregateQuery pendingAggregateQuery;
     private ResultSetSnapshot snapshot;
     private ResultSetSnapshot baseSnapshot;
+    private ResultSetSnapshot aggregateSnapshot;
     private VisualizationConfiguration configuration;
     private boolean configurationInitialized;
     private ResultSetService resultSetService;
     private String activeSessionIdentity = "";
+    private VisualizerSession.DisplayMode displayMode = VisualizerSession.DisplayMode.SOURCE;
 
     @Override
     public void createPartControl(Composite parent) {
@@ -154,7 +161,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private void createHeader(Composite parent) {
         Composite header = new Composite(parent, SWT.NONE);
         header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout layout = new GridLayout(4, false);
+        GridLayout layout = new GridLayout(5, false);
         layout.marginWidth = 0;
         layout.marginHeight = 0;
         header.setLayout(layout);
@@ -176,6 +183,10 @@ public final class ResultsVisualizerView extends ViewPart {
         refresh.setText("Refresh");
         refresh.setToolTipText("Read the active result set again");
         refresh.addListener(SWT.Selection, event -> resultSetService.refresh());
+        backToOriginalButton = new Button(header, SWT.PUSH);
+        backToOriginalButton.setText("Back to Original");
+        backToOriginalButton.setVisible(false);
+        backToOriginalButton.addListener(SWT.Selection, event -> switchToSourceView());
     }
 
     private void createChartPanel(Composite parent) {
@@ -190,7 +201,6 @@ public final class ResultsVisualizerView extends ViewPart {
     private void createConfigurationPanel(Composite parent) {
         configurationScroller = new ScrolledComposite(parent, SWT.V_SCROLL);
         GridData scrollerData = new GridData(SWT.FILL, SWT.CENTER, true, false);
-        scrollerData.heightHint = 128;
         configurationScroller.setLayoutData(scrollerData);
         configurationScroller.setExpandHorizontal(true);
         configurationScroller.setExpandVertical(true);
@@ -264,19 +274,19 @@ public final class ResultsVisualizerView extends ViewPart {
         slicersButton.setText("Slicer…");
         slicersButton.addListener(SWT.Selection, event -> openSlicerDialog());
         Button savePreset = new Button(localActions, SWT.PUSH);
-        savePreset.setText("Save Preset");
-        savePreset.setToolTipText("Save the current chart layout for this result shape");
-        savePreset.addListener(SWT.Selection, event -> saveVisualizationPreset());
-        Button loadPreset = new Button(localActions, SWT.PUSH);
-        loadPreset.setText("Load Preset");
-        loadPreset.setToolTipText("Restore a saved preset for this result shape");
-        loadPreset.addListener(SWT.Selection, event -> loadVisualizationPreset());
-        Button deletePreset = new Button(localActions, SWT.PUSH);
-        deletePreset.setText("Delete Preset");
-        deletePreset.setToolTipText("Remove a saved preset by name");
-        deletePreset.addListener(SWT.Selection, event -> deleteVisualizationPreset());
+        savePreset.setText("Presets ▾");
+        savePreset.setToolTipText("Save, load, or delete a saved chart layout preset for this result shape");
+        savePreset.addListener(SWT.Selection, event -> showDropdownMenu(savePreset, menu -> {
+            addMenuItem(menu, "Save Preset…", "Save the current chart layout for this result shape",
+                    () -> saveVisualizationPreset());
+            addMenuItem(menu, "Load Preset…", "Restore a saved preset for this result shape",
+                    () -> loadVisualizationPreset());
+            addMenuItem(menu, "Delete Preset…", "Remove a saved preset by name",
+                    () -> deleteVisualizationPreset());
+        }));
         Button clearSlicers = new Button(localActions, SWT.PUSH);
-        clearSlicers.setText("Clear");
+        clearSlicers.setText("Clear Slicers");
+        clearSlicers.setToolTipText("Clear all active slicers");
         clearSlicers.addListener(SWT.Selection, event -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
         Composite sourceActions = new Composite(actionBand, SWT.NONE);
         sourceActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
@@ -323,11 +333,11 @@ public final class ResultsVisualizerView extends ViewPart {
         aggregationCombo = new Combo(aggregationOptions, SWT.DROP_DOWN | SWT.READ_ONLY);
         aggregationCombo.setLayoutData(compactComboData(80));
         setAccessibleName(aggregationCombo, "Aggregation");
-        for (Aggregation aggregation : Aggregation.values()) aggregationCombo.add(aggregation.toString());
         aggregationCombo.addListener(SWT.Selection, event -> {
             if (configuration == null || aggregationCombo.getSelectionIndex() < 0) return;
+            if (aggregationCombo.getSelectionIndex() >= availableAggregations.size()) return;
             configuration = configuration.withAggregation(
-                    Aggregation.values()[aggregationCombo.getSelectionIndex()]);
+                    availableAggregations.get(aggregationCombo.getSelectionIndex()));
             updateChart();
         });
 
@@ -353,19 +363,20 @@ public final class ResultsVisualizerView extends ViewPart {
 
         Composite exportActions = new Composite(configurationGroup, SWT.NONE);
         exportActions.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout exportLayout = new GridLayout(2, false);
+        GridLayout exportLayout = new GridLayout(1, false);
         exportLayout.marginWidth = 0;
         exportLayout.marginHeight = 0;
         exportLayout.horizontalSpacing = 6;
         exportActions.setLayout(exportLayout);
-        Button savePng = new Button(exportActions, SWT.PUSH);
-        savePng.setText("Save PNG");
-        savePng.setToolTipText("Export the current chart as a PNG file");
-        savePng.addListener(SWT.Selection, event -> exportCurrentChart(false));
-        Button copyPng = new Button(exportActions, SWT.PUSH);
-        copyPng.setText("Copy PNG");
-        copyPng.setToolTipText("Copy the current chart to the system clipboard");
-        copyPng.addListener(SWT.Selection, event -> exportCurrentChart(true));
+        Button exportButton = new Button(exportActions, SWT.PUSH);
+        exportButton.setText("Export ▾");
+        exportButton.setToolTipText("Save or copy the current chart as a PNG image");
+        exportButton.addListener(SWT.Selection, event -> showDropdownMenu(exportButton, menu -> {
+            addMenuItem(menu, "Save PNG…", "Export the current chart as a PNG file",
+                    () -> exportCurrentChart(false));
+            addMenuItem(menu, "Copy PNG", "Copy the current chart to the system clipboard",
+                    () -> exportCurrentChart(true));
+        }));
 
         ViewTheme.compact(configurationGroup);
         ViewTheme.improveContrast(configurationGroup);
@@ -382,6 +393,27 @@ public final class ResultsVisualizerView extends ViewPart {
         card.setLayout(layout);
         new Label(card, SWT.NONE).setText(title + ":");
         return card;
+    }
+
+    /**
+     * Opens a drop-down {@link Menu} anchored below the given button, populated via
+     * {@code populate}. Used to consolidate related actions (Presets, Export) behind a single
+     * button instead of one button per action.
+     */
+    private static void showDropdownMenu(Button anchor, java.util.function.Consumer<Menu> populate) {
+        Menu menu = new Menu(anchor.getShell(), SWT.POP_UP);
+        populate.accept(menu);
+        org.eclipse.swt.graphics.Point location =
+                anchor.toDisplay(0, anchor.getSize().y);
+        menu.setLocation(location);
+        menu.setVisible(true);
+    }
+
+    private static void addMenuItem(Menu menu, String text, String toolTip, Runnable action) {
+        MenuItem item = new MenuItem(menu, SWT.PUSH);
+        item.setText(text);
+        if (toolTip != null) item.setToolTipText(toolTip);
+        item.addListener(SWT.Selection, event -> action.run());
     }
 
     private static GridData compactComboData(int width) {
@@ -450,8 +482,10 @@ public final class ResultsVisualizerView extends ViewPart {
             case LOADING -> showMessage("Reading the active result set...");
             case NO_ACTIVE_RESULT -> {
                 pendingAggregateQuery = null;
+                aggregateSnapshot = null;
+                displayMode = VisualizerSession.DisplayMode.SOURCE;
                 if (!activeSessionIdentity.isBlank()) {
-                    visualizerSessionManager.remove(activeSessionIdentity);
+                    persistCurrentSessionState(activeSessionIdentity);
                     activeSessionIdentity = "";
                 }
                 DBeaverSqlDialectService.clearQuoteString();
@@ -461,7 +495,16 @@ public final class ResultsVisualizerView extends ViewPart {
                 pendingAggregateQuery = null;
                 showMessage(update.message());
             }
-            case READY -> showBaseSnapshot(update.snapshot());
+            case READY -> {
+                if (pendingAggregateQuery != null) {
+                    aggregateSnapshot = update.snapshot();
+                    displayMode = VisualizerSession.DisplayMode.AGGREGATE;
+                    pendingAggregateQuery = null;
+                    showAggregateSnapshot(aggregateSnapshot);
+                    return;
+                }
+                showBaseSnapshot(update.snapshot());
+            }
         }
     }
 
@@ -487,10 +530,55 @@ public final class ResultsVisualizerView extends ViewPart {
     private void showBaseSnapshot(ResultSetSnapshot newBaseSnapshot) {
         switchSessionIfNeeded(currentSessionIdentity());
         baseSnapshot = newBaseSnapshot;
+        displayMode = VisualizerSession.DisplayMode.SOURCE;
+        aggregateSnapshot = null;
         CalculatedFieldProjection projection =
                 calculatedFieldService.project(newBaseSnapshot, calculatedFields);
         updateFieldStatus(projection.errors());
         showSnapshot(projection.snapshot());
+    }
+
+    private void renderSourceView(ResultSetSnapshot sourceSnapshot) {
+        if (sourceSnapshot == null) return;
+        displayMode = VisualizerSession.DisplayMode.SOURCE;
+        CalculatedFieldProjection projection =
+                calculatedFieldService.project(sourceSnapshot, calculatedFields);
+        updateFieldStatus(projection.errors());
+        showSnapshot(projection.snapshot());
+    }
+
+    private void showAggregateSnapshot(ResultSetSnapshot aggregateResult) {
+        if (aggregateResult == null) return;
+        displayMode = VisualizerSession.DisplayMode.AGGREGATE;
+        aggregateSnapshot = aggregateResult;
+        snapshot = aggregateResult;
+        String source = aggregateResult.sourceName().isBlank() ? "Aggregate result" : aggregateResult.sourceName();
+        summaryLabel.setText(source + " — " + aggregateResult.columns().size() + " fields, "
+                + aggregateResult.availableRowCount() + " rows" + (aggregateResult.truncated() ? ", row limit reached" : ""));
+        setVisible(rowLimitWarning, aggregateResult.truncated());
+        setVisible(messageLabel, false);
+        setVisible(body, true);
+        setVisible(configurationScroller, true);
+        updateDisplayModeControls();
+        updateChart();
+        content.layout(true, true);
+        persistCurrentSessionState(activeSessionIdentity);
+    }
+
+    private void switchToSourceView() {
+        if (baseSnapshot == null) return;
+        displayMode = VisualizerSession.DisplayMode.SOURCE;
+        renderSourceView(baseSnapshot);
+    }
+
+    private void updateDisplayModeControls() {
+        if (backToOriginalButton == null || backToOriginalButton.isDisposed()) return;
+        boolean shouldShow = aggregateSnapshot != null && displayMode == VisualizerSession.DisplayMode.AGGREGATE;
+        backToOriginalButton.setVisible(shouldShow);
+        if (shouldShow) {
+            summaryLabel.setText((summaryLabel.getText().contains("Aggregate") ? summaryLabel.getText() : "Viewing: Aggregate Result")
+                    + "   [Back to Original]");
+        }
     }
 
     /** Identity of the DBeaver result/controller currently backing the view, or "" if none. */
@@ -514,9 +602,6 @@ public final class ResultsVisualizerView extends ViewPart {
         if (baseSnapshot != null && !activeSessionIdentity.isBlank()) {
             persistCurrentSessionState(activeSessionIdentity);
         }
-        if (!activeSessionIdentity.isBlank() && !normalizedNew.equals(normalizedOld)) {
-            visualizerSessionManager.remove(activeSessionIdentity);
-        }
         activeSessionIdentity = newIdentity;
         restoreSessionState(newIdentity);
         updateQuoteContext();
@@ -526,24 +611,27 @@ public final class ResultsVisualizerView extends ViewPart {
         String sessionId = visualizerSessionManager.sessionIdFor(identity);
         visualizerSessionManager.update(sessionId, session -> session
                 .withBaseSnapshot(baseSnapshot)
-                .withAggregateSnapshot(snapshot)
+                .withAggregateSnapshot(aggregateSnapshot)
                 .withConfiguration(configuration)
                 .withMatrixOptions(matrixOptions)
                 .withAggregateQuery(pendingAggregateQuery)
                 .withCalculatedFields(new ArrayList<>(calculatedFields))
                 .withSlicers(new ArrayList<>(slicers))
                 .withSortRules(new ArrayList<>(sortRules))
-                .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions)));
+                .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions))
+                .withDisplayMode(displayMode));
     }
 
     private void restoreSessionState(String identity) {
         VisualizerSession session = visualizerSessionManager.getOrCreate(identity);
         baseSnapshot = session.baseSnapshot();
-        snapshot = session.aggregateSnapshot();
+        aggregateSnapshot = session.aggregateSnapshot();
+        snapshot = session.aggregateSnapshot() != null ? session.aggregateSnapshot() : session.baseSnapshot();
         configuration = session.configuration();
         configurationInitialized = configuration != null;
         matrixOptions = session.matrixOptions();
         pendingAggregateQuery = session.aggregateQuery();
+        displayMode = session.displayMode() == null ? VisualizerSession.DisplayMode.SOURCE : session.displayMode();
         calculatedFields.clear();
         calculatedFields.addAll(session.calculatedFields());
         slicers.clear();
@@ -592,6 +680,7 @@ public final class ResultsVisualizerView extends ViewPart {
         setVisible(messageLabel, false);
         setVisible(body, true);
         setVisible(configurationScroller, true);
+        updateDisplayModeControls();
         updateChart();
         content.layout(true, true);
         persistCurrentSessionState(activeSessionIdentity);
@@ -697,13 +786,12 @@ public final class ResultsVisualizerView extends ViewPart {
         valueWell.removeAll();
         valueWell.add("(none)");
         valueWellIndexes = java.util.stream.IntStream.range(0, value.columns().size())
-                .filter(index -> ChartDataBuilder.isNumeric(value.columns().get(index)))
                 .boxed().toList();
         for (int index : valueWellIndexes) valueWell.add(value.columns().get(index).displayName());
         populateDimensionWell(seriesWell, seriesWellChoices, selectedColumns().stream().findFirst().orElse(null));
         chartTypeCombo.select(chartTypes.indexOf(configuration.chartType()));
         updateRoleLabels();
-        aggregationCombo.select(configuration.aggregation().ordinal());
+        updateAggregationOptions(value);
         int valueSelection = valueWellIndexes.indexOf(configuration.valueColumnIndex());
         valueWell.select(valueSelection < 0 ? 0 : valueSelection + 1);
         if (configuration.yAxisMaximum() == null) {
@@ -711,6 +799,27 @@ public final class ResultsVisualizerView extends ViewPart {
         } else {
             yMaximumCombo.setText(formatAxisMaximum(configuration.yAxisMaximum()));
         }
+    }
+
+    /**
+     * Repopulates the Aggregation combo with only the aggregations that are meaningful for the
+     * currently selected Values column's type (see {@link Aggregation#compatibleWith}), and, if
+     * the configuration's current aggregation is no longer compatible (e.g. the Values column
+     * changed from numeric to a string column), automatically switches it to COUNT so the chart
+     * keeps rendering instead of silently keeping an invalid aggregation.
+     */
+    private void updateAggregationOptions(ResultSetSnapshot value) {
+        int columnIndex = configuration.valueColumnIndex();
+        NormalizedDataType type = columnIndex >= 0 && columnIndex < value.columns().size()
+                ? value.columns().get(columnIndex).normalizedType() : NormalizedDataType.OTHER;
+        availableAggregations = Aggregation.compatibleWith(type);
+        aggregationCombo.removeAll();
+        for (Aggregation aggregation : availableAggregations) aggregationCombo.add(aggregation.toString());
+        if (!availableAggregations.contains(configuration.aggregation())) {
+            configuration = configuration.withAggregation(Aggregation.COUNT);
+        }
+        int selection = availableAggregations.indexOf(configuration.aggregation());
+        aggregationCombo.select(selection < 0 ? 0 : selection);
     }
 
     private void assignRole(FieldRole role, int index) {
@@ -796,15 +905,14 @@ public final class ResultsVisualizerView extends ViewPart {
     private void updateMatrixWells() {
         matrixRowsWell.setChoices(dimensionChoices(snapshot), matrixRows);
         matrixColumnsWell.setChoices(dimensionChoices(snapshot), matrixColumns);
-        List<DimensionChoice> numeric = valueWellIndexes.stream()
+        List<DimensionChoice> values = valueWellIndexes.stream()
                 .map(index -> DimensionChoice.result(snapshot, index)).toList();
-        matrixValuesWell.setChoices(numeric, matrixValues);
+        matrixValuesWell.setChoices(values, matrixValues);
     }
 
     private void initializeDimensionSelections(ResultSetSnapshot value) {
         matrixValues.removeIf(choice -> choice.isCustom()
-                || choice.resultIndex() >= value.columns().size()
-                || !ChartDataBuilder.isNumeric(value.columns().get(choice.resultIndex())));
+                || choice.resultIndex() >= value.columns().size());
         if (activeXChoice == null || (!activeXChoice.isCustom()
                 && activeXChoice.resultIndex() >= value.columns().size())) {
             activeXChoice = configuration.xColumnIndex() < 0 ? null

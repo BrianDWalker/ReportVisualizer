@@ -109,6 +109,17 @@ Read-only X/Values/Series combos are the single assignment mechanism; the earlie
 drag/drop and context-menu paths were removed. Explicit accessible names and
 command focus support keyboard and assistive-technology navigation.
 
+The Values well (and the Matrix/Pivot Values well) accepts columns of any
+normalized type, not just numeric ones. `Aggregation.compatibleWith(type)`
+determines which aggregations are offered for the selected column: numeric
+columns keep the full SUM/AVG/MIN/MAX/COUNT/COUNT DISTINCT set, while string,
+boolean, and date/time columns are restricted to COUNT/COUNT DISTINCT (MIN/MAX
+of a non-numeric value has no well-defined numeric chart-axis representation
+without a larger, deliberately out-of-scope calendar-aware axis feature). The
+Aggregation drop-down is repopulated whenever the Values selection changes and
+automatically falls back to COUNT if the previously selected aggregation is no
+longer valid for the new column's type.
+
 `ChartDataBuilder` performs SUM, AVG, MIN, MAX, COUNT, and COUNT DISTINCT over the
 plug-in-owned snapshot. A stable insertion-ordered group key consists of the X
 value and optional Series value. Aggregation therefore never modifies or reruns
@@ -116,6 +127,13 @@ SQL. `ChartPoint` carries a series name, and `ChartDataset` exposes categories,
 series names, and per-series points. Each renderer consumes those helpers to
 draw grouped bars or separately colored line/scatter series plus a local SWT
 legend.
+
+COUNT DISTINCT canonicalizes numeric raw values (via `BigDecimal` with trailing
+zeros stripped, plus an explicit zero special-case to avoid a known
+cross-JDK `BigDecimal.ZERO.stripTrailingZeros()` inconsistency) before adding
+them to the distinct set, so values that arrive as different Java wrapper
+types depending on JDBC driver/type (`Integer 1`, `Double 1.0`,
+`BigDecimal("1.00")`) are correctly treated as the same distinct value.
 
 ## Part 5 calculated fields
 
@@ -125,25 +143,54 @@ and produces a new snapshot; it never writes through to DBeaver, changes the SQL
 text, or reruns the query. Definitions remain owned by the visualizer view and
 are reapplied when compatible result rows refresh.
 
-`ExpressionCompiler` is a purpose-built recursive-descent parser. Its grammar is
-limited to case-insensitive `[field]` references, numeric constants, arithmetic
-operators, parentheses, unary signs, and the numeric functions `ABS`, `ROUND`,
-`CEIL`, `FLOOR`, `SQRT`, `POWER`, `MIN`, and `MAX`. It has no Java, JavaScript,
-shell, SQL, reflection, filesystem, or
-process execution facility. Unsupported tokens and function names fail during
-validation before a definition is accepted.
+`ExpressionCompiler` is a purpose-built recursive-descent parser. Its grammar
+supports case-insensitive `[field]` references, numeric constants, arithmetic
+operators, parentheses, unary signs; the numeric functions `ABS`, `ROUND`,
+`CEIL`, `FLOOR`, `SQRT`, `POWER`, `MIN`, `MAX`, `LOG`, `EXP`, and `MOD`; the
+null-tolerant functions `COALESCE`, `NULLIF`, and `IF(condition, whenTrue,
+whenFalse)`; the comparison operators `= <> != > < >= <=`; and the logical
+operators `AND`, `OR`, `NOT`. Precedence (loosest to tightest) is
+Or → And → Not → Comparison → Additive → Term → Unary → Primary. Boolean-ish
+results are represented internally as `1.0`/`0.0`/`null`; `AND`/`OR`/`NOT`
+return `null` ("unknown") if either operand is `null` — a deliberate
+simplification of full SQL three-valued logic that keeps the grammar small
+while still failing safe. It has no Java, JavaScript, shell, SQL, reflection,
+filesystem, or process execution facility. Unsupported tokens and function
+names fail during validation before a definition is accepted.
 
 Compiled expressions evaluate one immutable row at a time. Null, boolean,
-temporal, incompatible, divide-by-zero, and non-finite inputs produce a null
-calculated value for that row. One invalid definition is reported separately
-and does not prevent valid definitions from being projected. Definitions are
-compiled and resolved against column indexes once per projection rather than
-parsing an expression for every row.
+temporal, incompatible, divide-by-zero, non-finite, and invalid-logarithm
+inputs produce a null calculated value for that row, with two deliberate
+exceptions: `COALESCE`, `NULLIF`, and `IF` inspect nulls explicitly (first
+non-null argument, null-if-equal, condition-gated propagation) instead of the
+generic math-function path's fail-fast-on-any-null-argument behavior. One
+invalid definition is reported separately and does not prevent valid
+definitions from being projected. Definitions are compiled and resolved
+against column indexes once per projection rather than parsing an expression
+for every row.
+
+`CalculatedFieldSqlTranslator` expands validated formulas into SQL for Source
+Query generation. Field references are substituted with quoted SQL
+identifiers, then `MIN(a, b)`/`MAX(a, b)` (SQL aggregate functions, not
+two-argument scalars) are rewritten to `LEAST`/`GREATEST`, `MOD(a, b)` is
+rewritten to `(a % b)` (several dialects have no `MOD` function), and
+`IF(c, t, f)` is rewritten to `CASE WHEN c THEN t ELSE f END` (`IF(...)` as an
+expression is a MySQL-specific extension, not standard SQL). The rewrite uses
+a paren-and-comma-depth-aware argument splitter (not naive regex) so nested
+calls translate correctly and a malformed/unexpected-arity match is left
+untouched rather than guessed at. `COALESCE`, `NULLIF`, comparisons, and
+`AND`/`OR`/`NOT` are already standard SQL and pass through unchanged. `LOG` is
+a known, documented limitation: it is left as a pass-through because its
+argument order and base (natural vs. base-10) are not consistent across SQL
+dialects, so multi-argument `LOG` formulas used inside the Source Query should
+be verified against the target database.
 
 `CalculatedFieldDialog` provides the Name and Expression editor, a field/type
-list with double-click insertion, a formula guide, practical examples, and
-Create/Cancel actions. After creation, the new column uses the same field table,
-dropdown selectors, aggregation pipeline, and chart renderers as database fields.
+list with double-click insertion, a one-line formula hint plus a
+"Formula Help…" button that opens the full function/operator/example
+reference, and Create/Cancel actions. After creation, the new column uses the
+same field table, dropdown selectors, aggregation pipeline, and chart
+renderers as database fields.
 
 Automatic chart scaling chooses a readable 1/2/2.5/5/10 upper bound rather than
 using the exact data maximum. `VisualizationConfiguration` can carry a user Y
@@ -171,7 +218,16 @@ without changing the immutable-snapshot rendering model:
   `ResultsVisualizerView`. The session map is LRU-bounded
   (`VisualizerSessionManager.MAX_SESSIONS`) and cleared on view disposal, since
   there is no dedicated per-controller disposal callback available from the
-  DBeaver result-set API surface used here.
+  DBeaver result-set API surface used here. `switchSessionIfNeeded` persists
+  the outgoing session's state and only ever *replaces* it in the map — it no
+  longer removes the outgoing session, which previously discarded a panel's
+  configuration the moment focus moved away from it, defeating the purpose of
+  per-result persistence. `VisualizerSession.DisplayMode` (`SOURCE`/
+  `AGGREGATE`) tracks whether the view is currently rendering the original
+  DBeaver result (`baseSnapshot`) or the last executed Source Query aggregate
+  result (`aggregateSnapshot`); both snapshots persist/restore together with
+  the session so a "Back to Original" action can re-render the held source
+  snapshot without re-running SQL or touching DBeaver.
 - **DBeaver-aware SQL rewrite strategy** (`DBeaverSqlDialectService`,
   `AggregateQueryBuilder`, `AggregateQuery`): source-query aggregation chooses
   between an optimized direct `GROUP BY` rewrite of the original `FROM` clause

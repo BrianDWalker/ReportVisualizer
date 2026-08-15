@@ -48,6 +48,10 @@ public final class VisualizerSessionManager {
         return updated;
     }
 
+    public synchronized boolean contains(String resultIdentity) {
+        return sessions.containsKey(sessionIdFor(resultIdentity));
+    }
+
     public synchronized Optional<VisualizerSession> get(String resultIdentity) {
         return Optional.ofNullable(sessions.get(sessionIdFor(resultIdentity)));
     }
