@@ -103,10 +103,12 @@ Release downloads and checksums are available on the
   strategy actually used
 - Typed slicers distinguish SQL `NULL` from the literal text `(null)` and
   compare numeric-looking values numerically rather than as raw strings
-- **Save Preset / Load Preset / Delete Preset** persist a named chart/matrix
-  layout per result shape (source name + column names/types) using Eclipse
-  workspace preferences; loading only offers presets whose saved shape matches
-  the current result, so stale field assignments are never silently applied
+- **Save Preset / Load Preset / Delete Preset** persist and restore the complete
+  visualization state per result shape (chart type, ordered rows/columns and
+  multi-value Matrix values, aggregation, Y maximum, totals/subtotals, slicers,
+  ordered sorts, and referenced formulas). Load and Delete present a selectable
+  list of compatible saved presets; exact-name, versioned storage prevents
+  sanitized-name collisions and ignores corrupt entries safely
 - Visualization export: **Save PNG**, **Save JPEG**, **Save SVG**, **Save PDF**,
   and **Copy Image** (to the system clipboard) for the currently rendered
   chart or matrix, sharing the same on-screen rendering pipeline
