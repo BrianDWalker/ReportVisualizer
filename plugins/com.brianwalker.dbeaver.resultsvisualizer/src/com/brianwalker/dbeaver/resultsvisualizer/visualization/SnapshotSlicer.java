@@ -15,7 +15,7 @@ public final class SnapshotSlicer {
         List<ResultRow> rows = snapshot.rows().stream().filter(row -> slicers.stream()
                 .allMatch(slicer -> matches(snapshot, row, slicer))).toList();
         return new ResultSetSnapshot(snapshot.sourceName(), snapshot.columns(), rows,
-                rows.size(), false, snapshot.capturedAt());
+                rows.size(), false, snapshot.capturedAt(), snapshot.configuredRowLimit());
     }
 
     private static boolean matches(ResultSetSnapshot snapshot, ResultRow row, SlicerDefinition slicer) {

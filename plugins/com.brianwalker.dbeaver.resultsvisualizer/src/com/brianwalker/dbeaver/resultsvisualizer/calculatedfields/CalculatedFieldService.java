@@ -55,6 +55,7 @@ public final class CalculatedFieldService {
             rows.add(new ResultRow(row.sourceIndex(), values));
         }
         return new ResultSetSnapshot(snapshot.sourceName(), columns, rows,
-                snapshot.availableRowCount(), snapshot.truncated(), snapshot.capturedAt());
+                snapshot.availableRowCount(), snapshot.truncated(), snapshot.capturedAt(),
+                snapshot.configuredRowLimit());
     }
 }

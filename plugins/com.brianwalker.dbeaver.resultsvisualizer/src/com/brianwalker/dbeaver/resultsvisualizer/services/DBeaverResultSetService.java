@@ -138,12 +138,13 @@ final class DBeaverResultSetService
         IResultSetController controller = attachedController;
         if (!isUsable(controller)) throw new IllegalStateException("No active result is available.");
         DBCExecutionContext context = controller.getExecutionContext();
+        int configuredLimit = controller.getPreferenceStore().getInt(ModelPreferences.RESULT_SET_MAX_ROWS);
         new AbstractJob("Execute Results Visualizer aggregate") {
             @NotNull
             @Override
             protected IStatus run(@NotNull DBRProgressMonitor monitor) {
                 try {
-                    ResultSetSnapshot result = executeSnapshot(context, title, sql, monitor);
+                    ResultSetSnapshot result = executeSnapshot(context, title, sql, configuredLimit, monitor);
                     publish(ResultSetUpdate.ready(result));
                     return Status.OK_STATUS;
                 } catch (Exception error) {
@@ -156,11 +157,24 @@ final class DBeaverResultSetService
         }.schedule();
     }
 
+    /**
+     * Runs a generated aggregate/Source Query statement and copies its result, honoring
+     * DBeaver's own configured row cap ({@code ModelPreferences.RESULT_SET_MAX_ROWS}) the
+     * same way DBeaver's own result viewer does: {@link DBCStatement#setLimit} asks the
+     * driver to fetch at most {@code configuredLimit + 1} rows (the extra row is fetched,
+     * not kept, purely to detect truncation), and the copy loop independently stops after
+     * {@code configuredLimit} rows as a defense-in-depth cap for drivers that ignore
+     * {@code setLimit}. A non-positive {@code configuredLimit} means "no limit configured"
+     * (DBeaver's own convention), so no cap is applied in that case.
+     */
     private ResultSetSnapshot executeSnapshot(DBCExecutionContext context, String title,
-            String sql, DBRProgressMonitor monitor) throws Exception {
+            String sql, int configuredLimit, DBRProgressMonitor monitor) throws Exception {
         try (DBCSession session = context.openSession(monitor, DBCExecutionPurpose.USER, title);
                 DBCStatement statement = session.prepareStatement(
                         DBCStatementType.QUERY, sql, false, false, false)) {
+            if (configuredLimit > 0) {
+                statement.setLimit(0, configuredLimit + 1L);
+            }
             if (!statement.executeStatement()) throw new IllegalStateException("The query returned no result set.");
             try (DBCResultSet resultSet = statement.openResultSet()) {
                 List<? extends DBCAttributeMetaData> attributes = resultSet.getMeta().getAttributes();
@@ -174,7 +188,14 @@ final class DBeaverResultSetService
                             attribute.isRequired() ? Nullability.NOT_NULL : Nullability.NULLABLE));
                 }
                 List<ResultRow> rows = new ArrayList<>();
+                boolean truncated = false;
                 while (!monitor.isCanceled() && resultSet.nextRow()) {
+                    if (configuredLimit > 0 && rows.size() >= configuredLimit) {
+                        // A further row exists beyond the configured cap; stop copying it
+                        // but record that the source has more data than we're showing.
+                        truncated = true;
+                        break;
+                    }
                     List<Object> values = new ArrayList<>(attributes.size());
                     for (int index = 0; index < attributes.size(); index++) {
                         values.add(SnapshotValueConverter.convertPortable(
@@ -182,7 +203,8 @@ final class DBeaverResultSetService
                     }
                     rows.add(new ResultRow(rows.size(), values));
                 }
-                return new ResultSetSnapshot(title, columns, rows, rows.size(), false, Instant.now());
+                return new ResultSetSnapshot(title, columns, rows, rows.size(), truncated, Instant.now(),
+                        configuredLimit);
             }
         }
     }
@@ -315,10 +337,23 @@ final class DBeaverResultSetService
         IEditorPart activeEditor = page.getActiveEditor();
         String sourceName = activeEditor == null ? "" : activeEditor.getTitle();
         int configuredLimit = controller.getPreferenceStore().getInt(ModelPreferences.RESULT_SET_MAX_ROWS);
-        boolean limitReached = controller.isHasMoreData()
-                || configuredLimit > 0 && availableRows >= configuredLimit;
+        boolean limitReached = isTruncated(availableRows, configuredLimit, controller.isHasMoreData());
         return new ResultSetSnapshot(sourceName, columns, rows, availableRows,
-                limitReached, Instant.now());
+                limitReached, Instant.now(), configuredLimit);
+    }
+
+    /**
+     * True when the loaded row set should be treated as truncated relative to DBeaver's
+     * configured row cap. {@code hasMoreData} (DBeaver's own "there is definitely more"
+     * signal from the controller/driver) always wins. Otherwise, a non-positive
+     * {@code configuredLimit} means "no limit configured" and is never truncated; when a
+     * limit is configured, only {@code availableRows} strictly greater than the limit
+     * counts as truncated — a result that lands exactly on the limit with no other
+     * evidence of more data is presented as complete, matching DBeaver's own boundary
+     * semantics for {@code ModelPreferences.RESULT_SET_MAX_ROWS}.
+     */
+    static boolean isTruncated(int availableRows, int configuredLimit, boolean hasMoreData) {
+        return hasMoreData || (configuredLimit > 0 && availableRows > configuredLimit);
     }
 
     private void detachController() {

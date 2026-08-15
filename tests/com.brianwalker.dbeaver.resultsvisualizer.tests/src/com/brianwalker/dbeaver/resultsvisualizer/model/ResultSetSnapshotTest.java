@@ -51,6 +51,44 @@ public class ResultSetSnapshotTest {
                 () -> row.values().set(0, "changed"));
     }
 
+    @Test
+    public void defaultsConfiguredRowLimitToZeroForTheBackwardCompatibleConstructor() {
+        ResultSetSnapshot snapshot = new ResultSetSnapshot(
+                "query.sql", List.of(column()), List.of(), 0, false, Instant.EPOCH);
+
+        assertEquals(0, snapshot.configuredRowLimit());
+    }
+
+    @Test
+    public void sameDataIgnoresCapturedAtAndConfiguredRowLimit() {
+        List<ResultColumn> columns = List.of(column());
+        List<ResultRow> rows = List.of(new ResultRow(0, List.of("alpha")));
+        ResultSetSnapshot first = new ResultSetSnapshot(
+                "query.sql", columns, rows, 1, false, Instant.EPOCH, 100);
+        ResultSetSnapshot second = new ResultSetSnapshot(
+                "query.sql", columns, rows, 1, false, Instant.now(), 200);
+
+        assertEquals(true, first.sameData(second));
+        assertEquals(true, second.sameData(first));
+    }
+
+    @Test
+    public void sameDataDetectsGenuineDifferencesInRowsColumnsOrTruncation() {
+        ResultSetSnapshot base = new ResultSetSnapshot("query.sql", List.of(column()),
+                List.of(new ResultRow(0, List.of("alpha"))), 1, false, Instant.EPOCH);
+        ResultSetSnapshot differentRows = new ResultSetSnapshot("query.sql", List.of(column()),
+                List.of(new ResultRow(0, List.of("beta"))), 1, false, Instant.EPOCH);
+        ResultSetSnapshot differentTruncation = new ResultSetSnapshot("query.sql", List.of(column()),
+                List.of(new ResultRow(0, List.of("alpha"))), 1, true, Instant.EPOCH);
+        ResultSetSnapshot differentSource = new ResultSetSnapshot("other.sql", List.of(column()),
+                List.of(new ResultRow(0, List.of("alpha"))), 1, false, Instant.EPOCH);
+
+        assertEquals(false, base.sameData(differentRows));
+        assertEquals(false, base.sameData(differentTruncation));
+        assertEquals(false, base.sameData(differentSource));
+        assertEquals(false, base.sameData(null));
+    }
+
     private static ResultColumn column() {
         return new ResultColumn(0, "name", "Name", java.sql.Types.VARCHAR,
                 "VARCHAR", NormalizedDataType.STRING, Nullability.NULLABLE);
