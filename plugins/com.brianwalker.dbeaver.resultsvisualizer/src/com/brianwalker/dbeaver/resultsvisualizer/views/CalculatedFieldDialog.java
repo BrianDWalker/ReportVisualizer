@@ -6,10 +6,12 @@ import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFiel
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldService;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetSnapshot;
 import org.eclipse.jface.dialogs.IDialogConstants;
+import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.dialogs.TitleAreaDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Label;
@@ -93,17 +95,42 @@ final class CalculatedFieldDialog extends TitleAreaDialog {
         });
 
         new Label(form, SWT.NONE).setText("Formula guide:");
-        Label supported = new Label(form, SWT.WRAP);
-        supported.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        supported.setText("Put field names in square brackets. Use decimal numbers and +  −  *  /  ( ).\n"
-                + "Functions: ABS(value), ROUND(value), ROUND(value, decimals), CEIL(value), "
-                + "FLOOR(value), SQRT(value), POWER(value, exponent), MIN(a, b), MAX(a, b).\n"
+        Composite guideRow = new Composite(form, SWT.NONE);
+        guideRow.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout guideLayout = new GridLayout(2, false);
+        guideLayout.marginWidth = 0;
+        guideLayout.marginHeight = 0;
+        guideRow.setLayout(guideLayout);
+        Label hint = new Label(guideRow, SWT.WRAP);
+        hint.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        hint.setText("Put field names in [brackets]. Example: ROUND(([revenue] - [cost]) * 100 / [revenue], 2)");
+        Button formulaHelpButton = new Button(guideRow, SWT.PUSH);
+        formulaHelpButton.setText("Formula Help…");
+        formulaHelpButton.setToolTipText("Show the full list of supported functions, operators, and examples");
+        formulaHelpButton.addListener(SWT.Selection, event -> showFormulaHelp());
+        return area;
+    }
+
+    private void showFormulaHelp() {
+        MessageDialog.openInformation(getShell(), "Formula Help",
+                "Put field names in square brackets. Use decimal numbers and +  −  *  /  ( ).\n\n"
+                + "Functions:\n"
+                + "  ABS(value), ROUND(value), ROUND(value, decimals), CEIL(value), FLOOR(value),\n"
+                + "  SQRT(value), POWER(value, exponent), MIN(a, b), MAX(a, b),\n"
+                + "  LOG(value) [natural log], LOG(value, base), EXP(value), MOD(a, b)\n\n"
+                + "Conditional and null-handling functions:\n"
+                + "  COALESCE(a, b, ...) — first non-null argument\n"
+                + "  NULLIF(a, b) — null if a equals b, otherwise a\n"
+                + "  IF(condition, whenTrue, whenFalse)\n\n"
+                + "Comparison and logical operators:\n"
+                + "  =  <>  !=  >  <  >=  <=   and   AND  OR  NOT\n"
+                + "  (used inside IF(...), e.g. IF([revenue] > [cost] AND [cost] > 0, 1, 0))\n\n"
                 + "Examples:\n"
                 + "  Profit: [revenue] - [cost]\n"
                 + "  Margin %: ROUND(([revenue] - [cost]) * 100 / [revenue], 2)\n"
                 + "  Capped amount: MIN([amount], 1000)\n"
-                + "Null, non-numeric, invalid square-root, and divide-by-zero results stay blank.");
-        return area;
+                + "  Status: IF([revenue] > [cost], 1, 0)\n\n"
+                + "Null, non-numeric, invalid square-root/logarithm, and divide-by-zero results stay blank.");
     }
 
     @Override

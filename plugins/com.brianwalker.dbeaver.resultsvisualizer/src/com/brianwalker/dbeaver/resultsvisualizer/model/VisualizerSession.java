@@ -26,7 +26,13 @@ public record VisualizerSession(
         List<SlicerDefinition> slicers,
         List<SortRule> sortRules,
         List<CustomSqlDimension> customSqlDimensions,
-        AggregateQuery aggregateQuery) {
+        AggregateQuery aggregateQuery,
+        DisplayMode displayMode) {
+
+    public enum DisplayMode {
+        SOURCE,
+        AGGREGATE
+    }
 
     public VisualizerSession {
         id = Objects.requireNonNull(id, "id");
@@ -36,64 +42,72 @@ public record VisualizerSession(
         sortRules = sortRules == null ? List.of() : List.copyOf(sortRules);
         customSqlDimensions = customSqlDimensions == null ? List.of() : List.copyOf(customSqlDimensions);
         matrixOptions = matrixOptions == null ? MatrixDisplayOptions.DEFAULT : matrixOptions;
+        displayMode = displayMode == null ? DisplayMode.SOURCE : displayMode;
     }
 
     public static VisualizerSession empty(String id, String resultIdentity) {
         return new VisualizerSession(id, resultIdentity, null, null, null,
-                MatrixDisplayOptions.DEFAULT, List.of(), List.of(), List.of(), List.of(), null);
+                MatrixDisplayOptions.DEFAULT, List.of(), List.of(), List.of(), List.of(), null,
+                DisplayMode.SOURCE);
     }
 
     public VisualizerSession withBaseSnapshot(ResultSetSnapshot snapshot) {
         return new VisualizerSession(id, resultIdentity, snapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withAggregateSnapshot(ResultSetSnapshot snapshot) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, snapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withConfiguration(VisualizationConfiguration configuration) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withMatrixOptions(MatrixDisplayOptions matrixOptions) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withCalculatedFields(List<CalculatedFieldDefinition> value) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, value, slicers, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withSlicers(List<SlicerDefinition> value) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, value, sortRules,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withSortRules(List<SortRule> value) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, value,
-                customSqlDimensions, aggregateQuery);
+                customSqlDimensions, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withCustomSqlDimensions(List<CustomSqlDimension> value) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                value, aggregateQuery);
+                value, aggregateQuery, displayMode);
     }
 
     public VisualizerSession withAggregateQuery(AggregateQuery value) {
         return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
                 configuration, matrixOptions, calculatedFields, slicers, sortRules,
-                customSqlDimensions, value);
+                customSqlDimensions, value, displayMode);
+    }
+
+    public VisualizerSession withDisplayMode(DisplayMode value) {
+        return new VisualizerSession(id, resultIdentity, baseSnapshot, aggregateSnapshot,
+                configuration, matrixOptions, calculatedFields, slicers, sortRules,
+                customSqlDimensions, aggregateQuery, value);
     }
 }

@@ -229,7 +229,7 @@ public final class ChartDataBuilder {
 
         void add(Object rawValue, Double value) {
             count++;
-            distinct.add(rawValue);
+            distinct.add(canonicalizeForDistinct(rawValue));
             if (value == null) return;
             sum += value;
             minimum = Math.min(minimum, value);
@@ -246,5 +246,26 @@ public final class ChartDataBuilder {
                 case COUNT_DISTINCT -> distinct.size();
             };
         }
+    }
+
+    /**
+     * Normalizes a raw distinct-count value so numerically equal values with different Java
+     * representations (e.g. {@code Integer 1}, {@code Double 1.0}, {@code BigDecimal("1.00")})
+     * collapse into a single distinct entry instead of counting separately. Non-numeric values
+     * (including {@code null}, already normalized to the literal string "(null)" upstream via
+     * {@link #formatLabel}) are left untouched so their own {@code equals}/{@code hashCode}
+     * still determines distinctness.
+     */
+    private static Object canonicalizeForDistinct(Object rawValue) {
+        if (rawValue instanceof Number number) {
+            try {
+                BigDecimal canonical = new BigDecimal(number.toString());
+                return canonical.compareTo(BigDecimal.ZERO) == 0
+                        ? "0" : canonical.stripTrailingZeros().toPlainString();
+            } catch (NumberFormatException ignored) {
+                return rawValue;
+            }
+        }
+        return rawValue;
     }
 }

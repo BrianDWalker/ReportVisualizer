@@ -125,6 +125,24 @@ public class ChartDataBuilderTest {
     }
 
     @Test
+    public void countsDistinctNumericValuesAsEquivalentRegardlessOfJavaRepresentation() {
+        ResultSetSnapshot snapshot = new ResultSetSnapshot("distinct-numeric.sql", List.of(
+                column(0, "category", Types.VARCHAR, "VARCHAR", NormalizedDataType.STRING),
+                column(1, "amount", Types.DECIMAL, "DECIMAL", NormalizedDataType.DECIMAL)), List.of(
+                new ResultRow(0, List.of("Books", new BigDecimal("1"))),
+                new ResultRow(1, List.of("Books", new BigDecimal("1.0"))),
+                new ResultRow(2, List.of("Books", new BigDecimal("1.00"))),
+                new ResultRow(3, List.of("Books", 1)),
+                new ResultRow(4, List.of("Books", new BigDecimal("2")))),
+                5, false, Instant.EPOCH);
+
+        ChartDataset distinct = ChartDataBuilder.build(snapshot,
+                new VisualizationConfiguration(ChartType.BAR, 0, 1, -1, Aggregation.COUNT_DISTINCT));
+
+        assertEquals(2.0, distinct.points().get(0).y(), 0.0001);
+    }
+
+    @Test
     public void combinesMultipleMatrixRowAndColumnFields() {
         ResultSetSnapshot snapshot = new ResultSetSnapshot("matrix.sql", List.of(
                 column(0, "country", Types.VARCHAR, "VARCHAR", NormalizedDataType.STRING),

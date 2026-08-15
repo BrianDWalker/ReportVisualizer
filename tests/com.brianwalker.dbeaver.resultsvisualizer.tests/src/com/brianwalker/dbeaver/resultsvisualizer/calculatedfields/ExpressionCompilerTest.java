@@ -64,6 +64,95 @@ public class ExpressionCompilerTest {
         assertCompileError("[revenue]; DROP TABLE sales", "Unexpected ';'");
     }
 
+    @Test
+    public void supportsComparisonOperators() throws Exception {
+        assertEquals(1.0, ExpressionCompiler.compile("[revenue] > [cost]", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(0.0, ExpressionCompiler.compile("[revenue] < [cost]", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(1.0, ExpressionCompiler.compile("[revenue] >= 200", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(1.0, ExpressionCompiler.compile("[revenue] <= 200", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(1.0, ExpressionCompiler.compile("[revenue] <> [cost]", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(1.0, ExpressionCompiler.compile("[revenue] != [cost]", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(0.0, ExpressionCompiler.compile("[revenue] = [cost]", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertNull(ExpressionCompiler.compile("[revenue] > [cost]", columns())
+                .evaluate(Arrays.asList(null, 150)));
+    }
+
+    @Test
+    public void supportsAndOrNotWithNullPropagation() throws Exception {
+        CompiledExpression andOr = ExpressionCompiler.compile(
+                "IF(([revenue] > 100 AND [cost] < 200) OR NOT([cost] > 0), 1, 0)", columns());
+        assertEquals(1.0, andOr.evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(0.0, andOr.evaluate(List.of(50, 250)), 0.0001);
+
+        assertNull(ExpressionCompiler.compile("[revenue] > 0 AND [cost] > 0", columns())
+                .evaluate(Arrays.asList(null, 150)));
+        assertNull(ExpressionCompiler.compile("[revenue] > 0 OR [cost] > 0", columns())
+                .evaluate(Arrays.asList(null, -5)));
+        assertNull(ExpressionCompiler.compile("NOT([revenue] > 0)", columns())
+                .evaluate(Arrays.asList((Object) null, 150)));
+    }
+
+    @Test
+    public void supportsIfWithNullPropagatingOnlyThroughCondition() throws Exception {
+        CompiledExpression expression = ExpressionCompiler.compile(
+                "IF([revenue] > [cost], [revenue] - [cost], [cost] - [revenue])", columns());
+
+        assertEquals(50.0, expression.evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(50.0, expression.evaluate(List.of(150, 200)), 0.0001);
+        assertNull(expression.evaluate(Arrays.asList(null, 150)));
+    }
+
+    @Test
+    public void supportsCoalesceReturningFirstNonNullArgument() throws Exception {
+        CompiledExpression expression = ExpressionCompiler.compile(
+                "COALESCE([revenue], [cost], -1)", columns());
+
+        assertEquals(200.0, expression.evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(150.0, expression.evaluate(Arrays.asList(null, 150)), 0.0001);
+        assertEquals(-1.0, expression.evaluate(Arrays.asList(null, null)), 0.0001);
+    }
+
+    @Test
+    public void supportsNullIfReturningNullWhenArgumentsAreEqual() throws Exception {
+        CompiledExpression expression = ExpressionCompiler.compile(
+                "NULLIF([revenue], [cost])", columns());
+
+        assertNull(expression.evaluate(List.of(150, 150)));
+        assertEquals(200.0, expression.evaluate(List.of(200, 150)), 0.0001);
+        assertNull(expression.evaluate(Arrays.asList(null, 150)));
+    }
+
+    @Test
+    public void supportsLogExpAndMod() throws Exception {
+        assertEquals(0.0, ExpressionCompiler.compile("LOG(1)", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(2.0, ExpressionCompiler.compile("LOG(100, 10)", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertNull(ExpressionCompiler.compile("LOG(-1)", columns())
+                .evaluate(List.of(200, 150)));
+        assertEquals(1.0, ExpressionCompiler.compile("EXP(0)", columns())
+                .evaluate(List.of(200, 150)), 0.0001);
+        assertEquals(2.0, ExpressionCompiler.compile("MOD([revenue], [cost])", columns())
+                .evaluate(List.of(302, 150)), 0.0001);
+        assertNull(ExpressionCompiler.compile("MOD([revenue], 0)", columns())
+                .evaluate(List.of(302, 150)));
+    }
+
+    @Test
+    public void rejectsMalformedNewFunctionArgumentCounts() throws Exception {
+        assertCompileError("NULLIF([revenue])", "NULLIF expects 2 argument(s)");
+        assertCompileError("IF([revenue] > 0, 1)", "IF expects 3 argument(s)");
+        assertCompileError("COALESCE()", "COALESCE expects at least 1 argument(s)");
+        assertCompileError("MOD([revenue])", "MOD expects 2 argument(s)");
+    }
+
     private static void assertCompileError(String expression, String expected) throws Exception {
         try {
             ExpressionCompiler.compile(expression, columns());

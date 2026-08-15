@@ -47,6 +47,30 @@ public class VisualizerSessionManagerTest {
     }
 
     @Test
+    public void preservesDisplayModeAcrossSessionRestoration() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        manager.update("results-panel-1", session -> session
+                .withDisplayMode(VisualizerSession.DisplayMode.AGGREGATE));
+
+        VisualizerSession restored = manager.getOrCreate("results-panel-1");
+
+        assertEquals(VisualizerSession.DisplayMode.AGGREGATE, restored.displayMode());
+    }
+
+    @Test
+    public void preservesAggregateSnapshotAndDisplayModeTogether() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        VisualizerSession session = manager.update("results-panel-1", current -> current
+                .withAggregateSnapshot(new ResultSetSnapshot("aggregate", java.util.List.of(), java.util.List.of(), 0, false, java.time.Instant.now()))
+                .withDisplayMode(VisualizerSession.DisplayMode.AGGREGATE));
+
+        VisualizerSession restored = manager.getOrCreate("results-panel-1");
+
+        assertEquals(session.aggregateSnapshot(), restored.aggregateSnapshot());
+        assertEquals(VisualizerSession.DisplayMode.AGGREGATE, restored.displayMode());
+    }
+
+    @Test
     public void clearRemovesEverySession() {
         VisualizerSessionManager manager = new VisualizerSessionManager();
         manager.getOrCreate("results-panel-1");
