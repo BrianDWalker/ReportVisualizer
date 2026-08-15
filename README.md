@@ -4,8 +4,8 @@ A local Eclipse plug-in that adds a dockable **Results Visualizer** view to
 DBeaver Community. It turns the active SQL result or Grouping result into
 interactive charts and matrix/pivot views without requiring a separate service.
 
-**Current stable version:** `1.0.0` (Eclipse bundle build
-`1.0.0.202608141800`)
+**Current stable version:** `1.0.1` (Eclipse bundle build
+`1.0.1.202608141800`)
 
 ## Install
 

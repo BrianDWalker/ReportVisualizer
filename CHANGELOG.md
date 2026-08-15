@@ -36,6 +36,13 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
   in the DBeaver result-set API surface used here; the bounded LRU session
   cache plus explicit view-level cleanup is the deliberate mitigation.
 
+## 1.0.1 — 2026-08-15
+
+- Updated DBeaver dialect-aware identifier quoting fix and verification for
+  live update-site publication.
+- Improved quote handling for symmetric and asymmetric SQL dialects and
+  documented the remaining runtime validation limitations.
+
 ## 1.0.0 — 2026-08-14
 
 - Initial stable Results Visualizer release for DBeaver Community.
