@@ -26,6 +26,7 @@ import com.brianwalker.dbeaver.resultsvisualizer.services.QueryDimension;
 import com.brianwalker.dbeaver.resultsvisualizer.services.QueryMeasure;
 import com.brianwalker.dbeaver.resultsvisualizer.services.CalculatedFieldSqlTranslator;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.Aggregation;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.AggregateResultBinding;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartCanvas;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDataBuilder;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartRendererRegistry;
@@ -129,6 +130,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private ResultSetSnapshot baseSnapshot;
     private ResultSetSnapshot aggregateSnapshot;
     private VisualizationConfiguration configuration;
+    private VisualizationConfiguration sourceConfigurationBeforeAggregate;
     private boolean configurationInitialized;
     private ResultSetService resultSetService;
     private String activeSessionIdentity = "";
@@ -524,7 +526,6 @@ public final class ResultsVisualizerView extends ViewPart {
                 if (pendingAggregateQuery != null) {
                     aggregateSnapshot = update.snapshot();
                     displayMode = VisualizerSession.DisplayMode.AGGREGATE;
-                    pendingAggregateQuery = null;
                     showAggregateSnapshot(aggregateSnapshot);
                     return;
                 }
@@ -569,6 +570,7 @@ public final class ResultsVisualizerView extends ViewPart {
             // aggregate no longer matches it, so drop it and fall back to the source view.
             displayMode = VisualizerSession.DisplayMode.SOURCE;
             aggregateSnapshot = null;
+            sourceConfigurationBeforeAggregate = null;
         }
         CalculatedFieldProjection projection =
                 calculatedFieldService.project(newBaseSnapshot, calculatedFields);
@@ -595,6 +597,14 @@ public final class ResultsVisualizerView extends ViewPart {
         displayMode = VisualizerSession.DisplayMode.AGGREGATE;
         aggregateSnapshot = aggregateResult;
         snapshot = aggregateResult;
+        if (applyPendingAggregateResult(aggregateResult)) {
+            configurationInitialized = true;
+        }
+        initializeDimensionSelections(aggregateResult);
+        populateControls(aggregateResult);
+        updateRoleLabels();
+        updateSlicerLabel();
+        updateSortButton();
         String source = aggregateResult.sourceName().isBlank() ? "Aggregate result" : aggregateResult.sourceName();
         summaryLabel.setText(source + " — " + aggregateResult.columns().size() + " fields, "
                 + aggregateResult.availableRowCount() + " rows");
@@ -614,6 +624,15 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void switchToSourceView() {
         if (baseSnapshot == null) return;
+        if (sourceConfigurationBeforeAggregate != null) {
+            configuration = sourceConfigurationBeforeAggregate;
+            sourceConfigurationBeforeAggregate = null;
+            activeXChoice = null;
+            activeSeriesChoice = null;
+            matrixRows.clear();
+            matrixColumns.clear();
+            matrixValues.clear();
+        }
         displayMode = VisualizerSession.DisplayMode.SOURCE;
         renderSourceView(baseSnapshot);
     }
@@ -1006,25 +1025,17 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private boolean applyPendingAggregateResult(ResultSetSnapshot value) {
         if (pendingAggregateQuery == null) return false;
-        List<Integer> rows = findColumns(value, pendingAggregateQuery.rowAliases());
-        List<Integer> columns = findColumns(value, pendingAggregateQuery.columnAliases());
-        int resultValue = findColumn(value, pendingAggregateQuery.valueAlias());
-        if (rows.size() != pendingAggregateQuery.rowAliases().size()
-                || columns.size() != pendingAggregateQuery.columnAliases().size() || resultValue < 0) return false;
-        configuration = new VisualizationConfiguration(configuration.chartType(), rows, resultValue,
-                columns, Aggregation.SUM, configuration.yAxisMaximum());
-        activeXChoice = DimensionChoice.result(value, rows.get(0));
-        activeSeriesChoice = columns.isEmpty() ? null : DimensionChoice.result(value, columns.get(0));
-        matrixRows = rows.stream().map(index -> DimensionChoice.result(value, index))
+        var binding = AggregateResultBinding.bind(configuration, pendingAggregateQuery, value);
+        if (binding.isEmpty()) return false;
+        configuration = binding.get().configuration();
+        activeXChoice = binding.get().rows().isEmpty() ? null : DimensionChoice.result(value, binding.get().rows().get(0));
+        activeSeriesChoice = binding.get().columns().isEmpty() ? null : DimensionChoice.result(value, binding.get().columns().get(0));
+        matrixRows = binding.get().rows().stream().map(index -> DimensionChoice.result(value, index))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        matrixColumns = columns.stream().map(index -> DimensionChoice.result(value, index))
+        matrixColumns = binding.get().columns().stream().map(index -> DimensionChoice.result(value, index))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        matrixValues = java.util.stream.IntStream.range(0, value.columns().size())
-                .filter(index -> !rows.contains(index) && !columns.contains(index)
-                        && ChartDataBuilder.isNumeric(value.columns().get(index)))
-                .mapToObj(index -> DimensionChoice.result(value, index))
+        matrixValues = binding.get().values().stream().map(index -> DimensionChoice.result(value, index))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        if (matrixValues.isEmpty()) matrixValues.add(DimensionChoice.result(value, resultValue));
         pendingAggregateQuery = null;
         return true;
     }
@@ -1137,20 +1148,26 @@ public final class ResultsVisualizerView extends ViewPart {
     private void openSourceQueryBuilder() {
         if (snapshot == null || configuration == null) return;
         try {
+            ResultSetSnapshot sourceSnapshot = baseSnapshot == null ? snapshot : baseSnapshot;
+            ResultSetSnapshot querySource = calculatedFieldService.project(sourceSnapshot, calculatedFields).snapshot();
             List<QueryDimension> dimensions = baseQueryDimensions();
             List<QueryMeasure> measures = baseQueryMeasures();
-            String selectedMeasure = configuration.valueColumnIndex() < 0 ? ""
-                    : snapshot.columns().get(configuration.valueColumnIndex()).displayName();
+            VisualizationConfiguration queryConfiguration = displayMode == VisualizerSession.DisplayMode.AGGREGATE
+                    && sourceConfigurationBeforeAggregate != null ? sourceConfigurationBeforeAggregate : configuration;
+            String selectedMeasure = fieldName(querySource, queryConfiguration.valueColumnIndex());
             FullSqlConfigurationDialog dialog = new FullSqlConfigurationDialog(content.getShell(),
                     resultSetService.sourceQuery(), dimensions, measures, customSqlDimensions,
-                    snapshot, sqlTranslator(),
-                    selectedRows().stream().map(DimensionChoice::displayName).toList(),
-                    selectedColumns().stream().map(DimensionChoice::displayName).toList(),
-                    selectedMeasure, configuration.aggregation(), slicers, sortRules);
+                    querySource, sqlTranslator(),
+                    fieldNames(querySource, queryConfiguration.xColumnIndexes()),
+                    fieldNames(querySource, queryConfiguration.seriesColumnIndexes()),
+                    selectedMeasure, queryConfiguration.aggregation(), slicers, sortRules);
             if (dialog.open() == Window.OK) {
                 applyCustomSqlFields(dialog.customFields());
             }
             if (dialog.executeRequested() && dialog.query() != null) {
+                if (displayMode != VisualizerSession.DisplayMode.AGGREGATE || sourceConfigurationBeforeAggregate == null) {
+                    sourceConfigurationBeforeAggregate = configuration;
+                }
                 pendingAggregateQuery = dialog.query();
                 summaryLabel.setText("Executing source aggregate query…");
                 resultSetService.executeQuery("Results Visualizer Source Query", dialog.query().sql());
@@ -1181,7 +1198,9 @@ public final class ResultsVisualizerView extends ViewPart {
     private List<QueryDimension> baseQueryDimensions() {
         CalculatedFieldSqlTranslator translator = sqlTranslator();
         List<QueryDimension> dimensions = new ArrayList<>();
-        for (ResultColumn column : snapshot.columns()) {
+        ResultSetSnapshot source = calculatedFieldService.project(
+                baseSnapshot == null ? snapshot : baseSnapshot, calculatedFields).snapshot();
+        for (ResultColumn column : source.columns()) {
             dimensions.add(new QueryDimension(column.displayName(),
                     translator.expressionFor(column.displayName())));
         }
@@ -1191,7 +1210,9 @@ public final class ResultsVisualizerView extends ViewPart {
     private List<QueryMeasure> baseQueryMeasures() {
         CalculatedFieldSqlTranslator translator = sqlTranslator();
         List<QueryMeasure> measures = new ArrayList<>();
-        for (ResultColumn column : snapshot.columns()) {
+        ResultSetSnapshot source = calculatedFieldService.project(
+                baseSnapshot == null ? snapshot : baseSnapshot, calculatedFields).snapshot();
+        for (ResultColumn column : source.columns()) {
             if (ChartDataBuilder.isNumeric(column)) {
                 measures.add(new QueryMeasure(column.displayName(),
                         translator.expressionFor(column.displayName())));
@@ -1203,6 +1224,14 @@ public final class ResultsVisualizerView extends ViewPart {
     private CalculatedFieldSqlTranslator sqlTranslator() {
         ResultSetSnapshot source = baseSnapshot == null ? snapshot : baseSnapshot;
         return new CalculatedFieldSqlTranslator(source.columns(), calculatedFields);
+    }
+
+    private static String fieldName(ResultSetSnapshot value, int index) {
+        return index >= 0 && index < value.columns().size() ? value.columns().get(index).displayName() : "";
+    }
+
+    private static List<String> fieldNames(ResultSetSnapshot value, List<Integer> indexes) {
+        return indexes.stream().map(index -> fieldName(value, index)).filter(name -> !name.isEmpty()).toList();
     }
 
     private void previewDistinctSourceQuery(String fieldName) {

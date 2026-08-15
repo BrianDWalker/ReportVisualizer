@@ -101,6 +101,10 @@ Release downloads and checksums are available on the
   for CTEs, joins, `UNION`/`INTERSECT`/`EXCEPT`, multi-statement text, or other
   structurally ambiguous SQL. The generated SQL preview always reflects the
   strategy actually used
+- Source Query aggregate results rebind their returned aliases to the active
+  visualization controls; reopening Source Query always uses the original
+  result schema and SQL, while **Back to Original** restores the pre-aggregate
+  visualization
 - Typed slicers distinguish SQL `NULL` from the literal text `(null)` and
   compare numeric-looking values numerically rather than as raw strings
 - **Save Preset / Load Preset / Delete Preset** persist and restore the complete
