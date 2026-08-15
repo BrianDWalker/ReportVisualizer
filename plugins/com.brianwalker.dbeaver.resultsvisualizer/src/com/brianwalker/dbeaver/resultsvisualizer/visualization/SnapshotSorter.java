@@ -21,7 +21,8 @@ public final class SnapshotSorter {
         List<ResultRow> rows = new ArrayList<>(snapshot.rows());
         rows.sort((left, right) -> compare(left, right, keys));
         return new ResultSetSnapshot(snapshot.sourceName(), snapshot.columns(), rows,
-                snapshot.availableRowCount(), snapshot.truncated(), snapshot.capturedAt());
+                snapshot.availableRowCount(), snapshot.truncated(), snapshot.capturedAt(),
+                snapshot.configuredRowLimit());
     }
 
     private static int compare(ResultRow left, ResultRow right, List<Key> keys) {

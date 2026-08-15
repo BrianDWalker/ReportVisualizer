@@ -143,8 +143,8 @@ public final class ResultsVisualizerView extends ViewPart {
         messageLabel.setText("No active result set available.");
 
         rowLimitWarning = new Label(content, SWT.WRAP);
-        rowLimitWarning.setText("⚠ The selected Results/Grouping panel reached its row limit. "
-                + "This visual and its local slicers may represent only the loaded rows; use Source Query for a source-level aggregate.");
+        rowLimitWarning.setText(formatRowLimitWarning(0));
+        rowLimitWarning.setToolTipText("Use Source Query for a full, source-level aggregate.");
         rowLimitWarning.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         setVisible(rowLimitWarning, false);
 
@@ -271,8 +271,14 @@ public final class ResultsVisualizerView extends ViewPart {
         setAccessibleName(addCalculatedFieldButton, "Manage Local Calculated Fields");
         addCalculatedFieldButton.addListener(SWT.Selection, event -> openCalculatedFieldManager());
         slicersButton = new Button(localActions, SWT.PUSH);
-        slicersButton.setText("Slicer…");
-        slicersButton.addListener(SWT.Selection, event -> openSlicerDialog());
+        slicersButton.setText("Slicer ▾");
+        slicersButton.setToolTipText("Add or edit a slicer, or clear all active slicers");
+        slicersButton.addListener(SWT.Selection, event -> showDropdownMenu(slicersButton, menu -> {
+            addMenuItem(menu, "Add/Edit Slicer…", "Choose a field and values to filter the current chart",
+                    () -> openSlicerDialog());
+            addMenuItem(menu, "Clear Slicers", "Remove all active slicers",
+                    () -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
+        }));
         Button savePreset = new Button(localActions, SWT.PUSH);
         savePreset.setText("Presets ▾");
         savePreset.setToolTipText("Save, load, or delete a saved chart layout preset for this result shape");
@@ -284,10 +290,6 @@ public final class ResultsVisualizerView extends ViewPart {
             addMenuItem(menu, "Delete Preset…", "Remove a saved preset by name",
                     () -> deleteVisualizationPreset());
         }));
-        Button clearSlicers = new Button(localActions, SWT.PUSH);
-        clearSlicers.setText("Clear Slicers");
-        clearSlicers.setToolTipText("Clear all active slicers");
-        clearSlicers.addListener(SWT.Selection, event -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
         Composite sourceActions = new Composite(actionBand, SWT.NONE);
         sourceActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         GridLayout sourceLayout = new GridLayout(2, false);
@@ -467,12 +469,24 @@ public final class ResultsVisualizerView extends ViewPart {
         updateConfigurationViewport(matrix);
     }
 
+    /**
+     * Sizes the builder viewport to its actual content instead of a fixed pixel guess.
+     * The normal (non-matrix) builder must show its entire control set with no vertical
+     * scrolling at ordinary docked widths, so its {@link GridData#heightHint} is left at
+     * {@link SWT#DEFAULT}: SWT then asks {@link Group#computeSize} for the real preferred
+     * height of whatever is currently visible (the fixed set of wells/action rows, since
+     * the taller matrix wells are hidden), and the chart area above simply receives the
+     * remaining space. Matrix/Heatmap legitimately has more controls (three ordered wells
+     * plus totals checkboxes); it keeps the same {@code SWT.DEFAULT} sizing so nothing is
+     * pre-emptively clipped, and only falls back to the {@link ScrolledComposite}'s normal
+     * scrollbar if the panel is ever docked narrower/shorter than the matrix controls'
+     * genuine preferred size — never because of an arbitrary hardcoded cap.
+     */
     private void updateConfigurationViewport(boolean matrix) {
         if (configurationScroller == null || configurationScroller.isDisposed()) return;
         GridData data = (GridData) configurationScroller.getLayoutData();
-        data.heightHint = matrix ? 235 : 128;
-        int preferredHeight = configurationGroup.computeSize(SWT.DEFAULT, SWT.DEFAULT).y;
-        configurationScroller.setMinSize(0, preferredHeight);
+        data.heightHint = SWT.DEFAULT;
+        configurationScroller.setMinSize(configurationGroup.computeSize(SWT.DEFAULT, SWT.DEFAULT));
         configurationScroller.getParent().layout(true, true);
     }
 
@@ -527,15 +541,33 @@ public final class ResultsVisualizerView extends ViewPart {
         DBeaverSqlDialectService.installQuoteStyle(resultSetService.activeIdentifierQuoteStyle());
     }
 
+    /**
+     * Applies a freshly extracted base snapshot from DBeaver. Because DBeaver's result-set
+     * listener fires a fresh READY event on effectively every focus/tab change — not only
+     * on a genuine query rerun — this only invalidates a previously computed aggregate
+     * when the new base data actually differs in content from what we last knew (see
+     * {@link ResultSetSnapshot#sameData}); a mere refocus that re-delivers identical data
+     * must leave an active aggregate/{@code displayMode} exactly as the user left it.
+     */
     private void showBaseSnapshot(ResultSetSnapshot newBaseSnapshot) {
         switchSessionIfNeeded(currentSessionIdentity());
+        boolean genuineRerun = baseSnapshot == null || !baseSnapshot.sameData(newBaseSnapshot);
         baseSnapshot = newBaseSnapshot;
-        displayMode = VisualizerSession.DisplayMode.SOURCE;
-        aggregateSnapshot = null;
+        if (genuineRerun) {
+            // The source query actually reran with different data: any previously computed
+            // aggregate no longer matches it, so drop it and fall back to the source view.
+            displayMode = VisualizerSession.DisplayMode.SOURCE;
+            aggregateSnapshot = null;
+        }
         CalculatedFieldProjection projection =
                 calculatedFieldService.project(newBaseSnapshot, calculatedFields);
         updateFieldStatus(projection.errors());
-        showSnapshot(projection.snapshot());
+        if (!genuineRerun && displayMode == VisualizerSession.DisplayMode.AGGREGATE && aggregateSnapshot != null) {
+            // Keep showing the still-valid aggregate; nothing about the source data changed.
+            showAggregateSnapshot(aggregateSnapshot);
+        } else {
+            showSnapshot(projection.snapshot());
+        }
     }
 
     private void renderSourceView(ResultSetSnapshot sourceSnapshot) {
@@ -555,6 +587,7 @@ public final class ResultsVisualizerView extends ViewPart {
         String source = aggregateResult.sourceName().isBlank() ? "Aggregate result" : aggregateResult.sourceName();
         summaryLabel.setText(source + " — " + aggregateResult.columns().size() + " fields, "
                 + aggregateResult.availableRowCount() + " rows" + (aggregateResult.truncated() ? ", row limit reached" : ""));
+        if (aggregateResult.truncated()) rowLimitWarning.setText(formatRowLimitWarning(aggregateResult.configuredRowLimit()));
         setVisible(rowLimitWarning, aggregateResult.truncated());
         setVisible(messageLabel, false);
         setVisible(body, true);
@@ -676,6 +709,7 @@ public final class ResultsVisualizerView extends ViewPart {
         String copied = newSnapshot.truncated() ? ", row limit reached" : "";
         summaryLabel.setText(source + " — " + newSnapshot.columns().size() + " fields, "
                 + newSnapshot.availableRowCount() + " rows" + copied);
+        if (newSnapshot.truncated()) rowLimitWarning.setText(formatRowLimitWarning(newSnapshot.configuredRowLimit()));
         setVisible(rowLimitWarning, newSnapshot.truncated());
         setVisible(messageLabel, false);
         setVisible(body, true);
@@ -1148,7 +1182,7 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void updateSlicerLabel() {
         if (slicersButton != null && !slicersButton.isDisposed()) {
-            slicersButton.setText(slicers.isEmpty() ? "Slicer…" : "Slicers (" + slicers.size() + ")…");
+            slicersButton.setText(slicers.isEmpty() ? "Slicer ▾" : "Slicers (" + slicers.size() + ") ▾");
             slicersButton.getParent().layout(true, true);
         }
     }
@@ -1193,6 +1227,18 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private static String formatAxisMaximum(double value) {
         return value == Math.rint(value) ? Long.toString((long) value) : Double.toString(value);
+    }
+
+    /**
+     * Short, dynamic row-limit warning naming the actual configured DBeaver row cap
+     * ({@code ModelPreferences.RESULT_SET_MAX_ROWS}), rather than a long static paragraph
+     * describing the limit in the abstract. A non-positive limit means DBeaver reported no
+     * configured cap for this result, so the message falls back to a limit-agnostic phrase.
+     */
+    private static String formatRowLimitWarning(int configuredRowLimit) {
+        return configuredRowLimit > 0
+                ? "⚠ Showing only the first " + configuredRowLimit + " rows (DBeaver's row limit)."
+                : "⚠ Row limit reached; not all source rows are shown.";
     }
 
     private void exportCurrentChart(boolean copyToClipboard) {
