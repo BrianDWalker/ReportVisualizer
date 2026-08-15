@@ -20,7 +20,7 @@ import java.util.Set;
 import org.junit.Test;
 
 public class AggregateQueryBuilderTest {
-    @Test public void buildsPreviewableFullSourceQueryWithCustomDimensionAndSlicer() {
+    @Test public void usesDirectRewriteForSimpleSourceQuery() {
         String sql = AggregateQueryBuilder.build("SELECT order_dt, revenue, region FROM sales;",
                 snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
                 List.of(new CustomSqlDimension("month", "DATE_TRUNC('month', order_dt)")),
@@ -30,7 +30,17 @@ public class AggregateQueryBuilderTest {
         assertTrue(sql.contains("\"region\" IN ("));
         assertTrue(sql.contains("'East'"));
         assertTrue(sql.contains("'O''Brien'"));
-        assertTrue(sql.contains("FROM (\nSELECT order_dt, revenue, region FROM sales\n) rv_source"));
+        assertTrue(sql.contains("FROM sales"));
+        assertTrue(!sql.contains("rv_source"));
+    }
+
+    @Test public void fallsBackToDerivedQueryForComplexSourceSql() {
+        String sql = AggregateQueryBuilder.buildQuery(
+                "SELECT order_dt, revenue FROM sales UNION SELECT order_dt, revenue FROM archived_sales",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 2)), List.of()).sql();
+        assertTrue(sql.contains("FROM (\nSELECT order_dt, revenue FROM sales UNION SELECT order_dt, revenue FROM archived_sales\n) rv_source"));
     }
 
     @Test public void rejectsMultiStatementCustomExpressions() {

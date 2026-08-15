@@ -61,6 +61,7 @@ public final class AggregateQueryBuilder {
 
         List<QueryDimension> allDimensions = new ArrayList<>(rows);
         allDimensions.addAll(columns);
+        DBeaverSqlDialectService.QueryStrategy strategy = DBeaverSqlDialectService.strategyFor(sourceSql);
         StringBuilder sql = new StringBuilder("SELECT\n    ");
         sql.append(allDimensions.stream().map(d -> d.expression() + " AS " + quote(d.alias()))
                 .collect(java.util.stream.Collectors.joining(",\n    ")));
@@ -71,7 +72,7 @@ public final class AggregateQueryBuilder {
                     : selection.aggregation().name() + "(" + expression + ")";
             sql.append(",\n    ").append(aggregate).append(" AS ").append(quote(selection.alias()));
         }
-        sql.append("\nFROM (\n").append(stripTerminator(sourceSql)).append("\n) rv_source");
+        sql.append("\nFROM ").append(DBeaverSqlDialectService.sourceClause(sourceSql, strategy));
         List<String> predicates = predicates(slicers);
         if (!predicates.isEmpty()) sql.append("\nWHERE ").append(String.join("\n  AND ", predicates));
         sql.append("\nGROUP BY ").append(allDimensions.stream().map(QueryDimension::expression)
@@ -149,6 +150,6 @@ public final class AggregateQueryBuilder {
     }
 
     private static String quote(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return DBeaverSqlDialectService.quoteIdentifier(identifier);
     }
 }
