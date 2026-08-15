@@ -26,6 +26,7 @@ public final class SnapshotSlicer {
         }
         if (index < 0 || index >= row.values().size()) return false;
         Object value = row.values().get(index);
-        return slicer.selectedValues().contains(value == null ? "(null)" : value.toString());
+        SlicerValue candidate = SlicerValue.fromValue(value);
+        return slicer.selectedValues().stream().anyMatch(item -> item.matches(candidate));
     }
 }

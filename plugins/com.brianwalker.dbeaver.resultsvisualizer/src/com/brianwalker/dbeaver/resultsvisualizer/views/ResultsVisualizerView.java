@@ -111,6 +111,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private VisualizationConfiguration configuration;
     private boolean configurationInitialized;
     private ResultSetService resultSetService;
+    private String activeSessionIdentity = "";
 
     @Override
     public void createPartControl(Composite parent) {
@@ -427,6 +428,7 @@ public final class ResultsVisualizerView extends ViewPart {
     }
 
     private void showBaseSnapshot(ResultSetSnapshot newBaseSnapshot) {
+        switchSessionIfNeeded(currentSessionIdentity());
         baseSnapshot = newBaseSnapshot;
         CalculatedFieldProjection projection =
                 calculatedFieldService.project(newBaseSnapshot, calculatedFields);
@@ -434,10 +436,65 @@ public final class ResultsVisualizerView extends ViewPart {
         showSnapshot(projection.snapshot());
     }
 
+    /** Identity of the DBeaver result/controller currently backing the view, or "" if none. */
+    private String currentSessionIdentity() {
+        return resultSetService == null ? "" : resultSetService.activeResultIdentity();
+    }
+
+    /**
+     * Switches the live per-result fields (slicers, calculated fields, sort rules, custom
+     * fields, matrix options, chart configuration, pending aggregate query) to match
+     * {@code newIdentity}, persisting the outgoing identity's state first so it can be
+     * restored exactly when the user returns to it later.
+     */
+    private void switchSessionIfNeeded(String newIdentity) {
+        String normalizedNew = visualizerSessionManager.sessionIdFor(newIdentity);
+        String normalizedOld = visualizerSessionManager.sessionIdFor(activeSessionIdentity);
+        if (normalizedNew.equals(normalizedOld) && baseSnapshot != null) return;
+        if (baseSnapshot != null) persistCurrentSessionState(activeSessionIdentity);
+        activeSessionIdentity = newIdentity;
+        restoreSessionState(newIdentity);
+    }
+
+    private void persistCurrentSessionState(String identity) {
+        String sessionId = visualizerSessionManager.sessionIdFor(identity);
+        visualizerSessionManager.update(sessionId, session -> session
+                .withBaseSnapshot(baseSnapshot)
+                .withAggregateSnapshot(snapshot)
+                .withConfiguration(configuration)
+                .withMatrixOptions(matrixOptions)
+                .withAggregateQuery(pendingAggregateQuery)
+                .withCalculatedFields(new ArrayList<>(calculatedFields))
+                .withSlicers(new ArrayList<>(slicers))
+                .withSortRules(new ArrayList<>(sortRules))
+                .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions)));
+    }
+
+    private void restoreSessionState(String identity) {
+        VisualizerSession session = visualizerSessionManager.getOrCreate(identity);
+        baseSnapshot = session.baseSnapshot();
+        snapshot = session.aggregateSnapshot();
+        configuration = session.configuration();
+        configurationInitialized = configuration != null;
+        matrixOptions = session.matrixOptions();
+        pendingAggregateQuery = session.aggregateQuery();
+        calculatedFields.clear();
+        calculatedFields.addAll(session.calculatedFields());
+        slicers.clear();
+        slicers.addAll(session.slicers());
+        sortRules = new ArrayList<>(session.sortRules());
+        customSqlDimensions.clear();
+        customSqlDimensions.addAll(session.customSqlDimensions());
+        activeXChoice = null;
+        activeSeriesChoice = null;
+        matrixRows.clear();
+        matrixColumns.clear();
+        matrixValues.clear();
+    }
+
     private void showSnapshot(ResultSetSnapshot newSnapshot) {
         ResultSetSnapshot previous = snapshot;
         snapshot = newSnapshot;
-        saveSessionState(newSnapshot);
         slicers.removeIf(slicer -> newSnapshot.columns().stream().noneMatch(column ->
                 column.displayName().equalsIgnoreCase(slicer.fieldName())));
         updateSlicerLabel();
@@ -445,10 +502,6 @@ public final class ResultsVisualizerView extends ViewPart {
         if (newSnapshot.columns().isEmpty()) {
             showMessage("The active result set has no columns.");
             return;
-        }
-        VisualizerSession session = visualizerSessionManager.get(newSnapshot.sourceName()).orElse(null);
-        if (session != null && session.configuration() != null && !configurationInitialized) {
-            configuration = session.configuration();
         }
         if (applyPendingAggregateResult(newSnapshot)) {
             configurationInitialized = true;
@@ -475,21 +528,9 @@ public final class ResultsVisualizerView extends ViewPart {
         setVisible(configurationScroller, true);
         updateChart();
         content.layout(true, true);
+        persistCurrentSessionState(activeSessionIdentity);
     }
 
-    private void saveSessionState(ResultSetSnapshot newSnapshot) {
-        if (newSnapshot == null) return;
-        String identity = visualizerSessionManager.sessionIdFor(newSnapshot.sourceName());
-        visualizerSessionManager.update(identity, session -> session
-                .withBaseSnapshot(newSnapshot)
-                .withConfiguration(configuration)
-                .withMatrixOptions(matrixOptions)
-                .withAggregateQuery(pendingAggregateQuery)
-                .withCalculatedFields(new ArrayList<>(calculatedFields))
-                .withSlicers(new ArrayList<>(slicers))
-                .withSortRules(new ArrayList<>(sortRules))
-                .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions)));
-    }
 
     private void openCalculatedFieldManager() {
         if (snapshot == null || baseSnapshot == null) return;
@@ -970,6 +1011,7 @@ public final class ResultsVisualizerView extends ViewPart {
     @Override
     public void dispose() {
         if (resultSetService != null) resultSetService.close();
+        visualizerSessionManager.clear();
         super.dispose();
     }
 }

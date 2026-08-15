@@ -15,5 +15,15 @@ public interface ResultSetService extends AutoCloseable {
     boolean previewQuery(String title, String sql);
     void executeQuery(String title, String sql);
     void refresh();
+
+    /**
+     * Stable identity for the currently attached DBeaver result/controller and active
+     * source mode (Results vs Grouping), independent of editor title or display text.
+     * Returns an empty string when no result is currently attached.
+     */
+    default String activeResultIdentity() {
+        return "";
+    }
+
     @Override void close();
 }

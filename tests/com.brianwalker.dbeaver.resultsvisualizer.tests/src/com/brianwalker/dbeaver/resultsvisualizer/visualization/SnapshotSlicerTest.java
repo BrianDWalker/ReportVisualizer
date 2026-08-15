@@ -26,8 +26,8 @@ public class SnapshotSlicerTest {
                         new ResultRow(3, List.of("West", 2026))), 3, false, Instant.now());
 
         ResultSetSnapshot filtered = SnapshotSlicer.apply(source, List.of(
-                new SlicerDefinition("region", Set.of("East")),
-                new SlicerDefinition("year", Set.of("2026"))));
+                SlicerDefinition.fromStrings("region", Set.of("East")),
+                SlicerDefinition.fromStrings("year", Set.of("2026"))));
 
         assertEquals(1, filtered.rows().size());
         assertEquals(3, source.rows().size());

@@ -111,7 +111,7 @@ final class SlicerDialog extends TitleAreaDialog {
         for (TableItem item : valuesTable.getItems()) if (item.getChecked()) selected.add(item.getText());
         if (fieldCombo.getSelectionIndex() < 0) { setErrorMessage("Choose a field."); return; }
         if (selected.isEmpty()) { setErrorMessage("Select at least one value."); return; }
-        definition = new SlicerDefinition(fieldCombo.getText(), selected);
+        definition = SlicerDefinition.fromStrings(fieldCombo.getText(), selected);
         super.okPressed();
     }
 

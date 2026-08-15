@@ -24,7 +24,7 @@ public class AggregateQueryBuilderTest {
         String sql = AggregateQueryBuilder.build("SELECT order_dt, revenue, region FROM sales;",
                 snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
                 List.of(new CustomSqlDimension("month", "DATE_TRUNC('month', order_dt)")),
-                List.of(new SlicerDefinition("region", Set.of("East", "O'Brien"))));
+                List.of(SlicerDefinition.fromStrings("region", Set.of("East", "O'Brien"))));
         assertTrue(sql.contains("DATE_TRUNC('month', order_dt) AS \"month\""));
         assertTrue(sql.contains("SUM(\"revenue\")"));
         assertTrue(sql.contains("\"region\" IN ("));
@@ -41,6 +41,54 @@ public class AggregateQueryBuilderTest {
                 List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)),
                 List.of(AggregateQueryBuilder.resultDimension(snapshot(), 2)), List.of()).sql();
         assertTrue(sql.contains("FROM (\nSELECT order_dt, revenue FROM sales UNION SELECT order_dt, revenue FROM archived_sales\n) rv_source"));
+    }
+
+    @Test public void directRewriteCorrectlySkipsParenthesizedSubqueriesInTheSelectList() {
+        // A naive "first FROM after SELECT" split would incorrectly treat "archive" as the
+        // source table. Depth-aware scanning must skip the FROM nested inside the scalar
+        // subquery and find the true top-level source table, "sales".
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(
+                "SELECT (SELECT MAX(order_dt) FROM archive) AS latest, revenue FROM sales",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DIRECT_REWRITE);
+        assertTrue(query.sql().contains("FROM sales"));
+        assertTrue(!query.sql().contains("rv_source"));
+    }
+
+    @Test public void fallsBackWhenFromClauseItselfIsASubqueryOrJoinExpression() {
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(
+                "SELECT a.order_dt, a.revenue FROM (SELECT * FROM sales) a",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DERIVED_TABLE_FALLBACK);
+        assertTrue(query.sql().contains("rv_source"));
+    }
+
+    @Test public void fallsBackWhenSourceSqlHasAStackedSecondStatement() {
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(
+                "SELECT order_dt, revenue FROM sales; DROP TABLE sales;",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DERIVED_TABLE_FALLBACK);
+        assertTrue(!query.sql().contains("DROP TABLE") || query.sql().contains("rv_source"));
+        assertTrue(query.sql().contains("rv_source"));
+    }
+
+    @Test public void fallsBackWhenSourceSqlContainsAComment() {
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(
+                "SELECT order_dt, revenue FROM sales -- trailing comment\n",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DERIVED_TABLE_FALLBACK);
+    }
+
+    @Test public void directRewriteMarksOptimizedStrategyOnAggregateQuery() {
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(
+                "SELECT order_dt, revenue, region FROM sales",
+                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DIRECT_REWRITE);
     }
 
     @Test public void rejectsMultiStatementCustomExpressions() {

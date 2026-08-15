@@ -84,7 +84,7 @@ public final class AggregateQueryBuilder {
         sql.append("\nORDER BY ").append(String.join(", ", orderBy));
         sql.append(";");
         return new AggregateQuery(sql.toString(), rows.stream().map(QueryDimension::alias).toList(),
-                columns.stream().map(QueryDimension::alias).toList(), aggregations.get(0).alias());
+                columns.stream().map(QueryDimension::alias).toList(), aggregations.get(0).alias(), strategy);
     }
 
     public static QueryMeasure resultMeasure(ResultSetSnapshot snapshot, int index) {
@@ -124,9 +124,11 @@ public final class AggregateQueryBuilder {
         List<String> result = new ArrayList<>();
         for (SlicerDefinition slicer : slicers) {
             List<String> values = slicer.selectedValues().stream()
-                    .filter(value -> !value.equals("(null)"))
-                    .map(value -> "'" + value.replace("'", "''") + "'").toList();
-            boolean includesNull = slicer.selectedValues().contains("(null)");
+                    .filter(value -> !value.sqlNull())
+                    .map(com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerValue::sqlLiteral)
+                    .toList();
+            boolean includesNull = slicer.selectedValues().stream()
+                    .anyMatch(com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerValue::sqlNull);
             String field = quote(slicer.fieldName());
             String valuePredicate = values.isEmpty() ? "" : field + " IN (" + String.join(", ", values) + ")";
             result.add(includesNull && !valuePredicate.isEmpty() ? "(" + valuePredicate + " OR " + field + " IS NULL)"

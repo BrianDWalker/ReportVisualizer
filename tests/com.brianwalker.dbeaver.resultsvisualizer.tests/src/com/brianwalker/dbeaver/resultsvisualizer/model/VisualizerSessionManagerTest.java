@@ -7,6 +7,7 @@ package com.brianwalker.dbeaver.resultsvisualizer.model;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.Aggregation;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartType;
@@ -43,5 +44,30 @@ public class VisualizerSessionManagerTest {
         assertNotNull(restored.configuration());
         assertEquals(config, restored.configuration());
         assertEquals(new MatrixDisplayOptions(false, true, true), restored.matrixOptions());
+    }
+
+    @Test
+    public void clearRemovesEverySession() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        manager.getOrCreate("results-panel-1");
+        manager.getOrCreate("results-panel-2");
+
+        manager.clear();
+
+        assertEquals(0, manager.size());
+    }
+
+    @Test
+    public void evictsLeastRecentlyUsedSessionsBeyondTheBoundedCapacity() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        for (int i = 0; i < 25; i++) {
+            manager.getOrCreate("results-panel-" + i);
+        }
+
+        assertTrue("session count should be bounded", manager.size() <= 20);
+        assertTrue("most recently touched session must still be present",
+                manager.get("results-panel-24").isPresent());
+        assertTrue("oldest session should have been evicted",
+                manager.get("results-panel-0").isEmpty());
     }
 }

@@ -49,6 +49,7 @@ final class FullSqlConfigurationDialog extends TitleAreaDialog {
     private Table customTable;
     private Table aggregationTable;
     private Text sqlText;
+    private Label sqlLabel;
     private AggregateQuery query;
     private boolean executeRequested;
 
@@ -117,6 +118,7 @@ final class FullSqlConfigurationDialog extends TitleAreaDialog {
         GridData labelData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         labelData.horizontalSpan = 3;
         sqlLabel.setLayoutData(labelData);
+        this.sqlLabel = sqlLabel;
         sqlText = new Text(content, SWT.BORDER | SWT.MULTI | SWT.H_SCROLL | SWT.V_SCROLL | SWT.READ_ONLY);
         GridData sqlData = new GridData(SWT.FILL, SWT.FILL, true, true);
         sqlData.horizontalSpan = 3;
@@ -296,16 +298,25 @@ final class FullSqlConfigurationDialog extends TitleAreaDialog {
         try {
             query = AggregateQueryBuilder.buildQuery(sourceSql, checked(availableFieldsTable), List.of(),
                     slicers, sortRules, aggregations);
+            sqlLabel.setText("Generated SQL — executes in this visualization ("
+                    + strategyLabel(query.strategy()) + "):");
             sqlText.setText(query.sql());
             setErrorMessage(null);
             if (getButton(IDialogConstants.OK_ID) != null) getButton(IDialogConstants.OK_ID).setEnabled(true);
         } catch (RuntimeException error) {
             query = null;
+            sqlLabel.setText("Generated SQL — executes in this visualization:");
             sqlText.setText("-- " + error.getMessage());
             setErrorMessage(error.getMessage());
             if (getButton(IDialogConstants.OK_ID) != null) getButton(IDialogConstants.OK_ID).setEnabled(false);
         }
     }
+
+    private static String strategyLabel(com.brianwalker.dbeaver.resultsvisualizer.services.DBeaverSqlDialectService.QueryStrategy strategy) {
+        return strategy == com.brianwalker.dbeaver.resultsvisualizer.services.DBeaverSqlDialectService.QueryStrategy.DIRECT_REWRITE
+                ? "optimized source GROUP BY" : "derived-query GROUP BY";
+    }
+
 
     private static List<QueryDimension> checked(Table table) {
         return java.util.Arrays.stream(table.getItems()).filter(TableItem::getChecked)

@@ -94,6 +94,16 @@ final class DBeaverResultSetService
     }
 
     @Override
+    public String activeResultIdentity() {
+        IResultSetController controller = attachedController;
+        if (!isUsable(controller)) return "";
+        // Identity tracks the actual controller instance plus the active source mode, so
+        // Results and Grouping panels of the same editor never collide, and it stays valid
+        // across editor renames/retitles which the editor title text does not survive.
+        return Integer.toHexString(System.identityHashCode(controller)) + ":" + source.name();
+    }
+
+    @Override
     public String sourceQuery() {
         IResultSetController controller = attachedController;
         if (!isUsable(controller) || controller.getModel().getStatistics() == null) return "";
