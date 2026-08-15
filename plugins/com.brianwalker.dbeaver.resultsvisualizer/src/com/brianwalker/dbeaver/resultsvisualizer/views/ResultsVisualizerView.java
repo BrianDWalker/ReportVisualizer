@@ -40,12 +40,19 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.accessibility.AccessibleAdapter;
 import org.eclipse.swt.accessibility.AccessibleEvent;
 import org.eclipse.swt.custom.ScrolledComposite;
+import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.ImageTransfer;
+import org.eclipse.swt.dnd.Transfer;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.ImageData;
+import org.eclipse.swt.graphics.ImageLoader;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.ui.part.ViewPart;
@@ -326,6 +333,22 @@ public final class ResultsVisualizerView extends ViewPart {
         setAccessibleName(reset, "Reset Visualization");
         reset.setToolTipText("Clear field assignments without changing SQL or results");
         reset.addListener(SWT.Selection, event -> resetVisualization());
+
+        Composite exportActions = new Composite(configurationGroup, SWT.NONE);
+        exportActions.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout exportLayout = new GridLayout(2, false);
+        exportLayout.marginWidth = 0;
+        exportLayout.marginHeight = 0;
+        exportLayout.horizontalSpacing = 6;
+        exportActions.setLayout(exportLayout);
+        Button savePng = new Button(exportActions, SWT.PUSH);
+        savePng.setText("Save PNG");
+        savePng.setToolTipText("Export the current chart as a PNG file");
+        savePng.addListener(SWT.Selection, event -> exportCurrentChart(false));
+        Button copyPng = new Button(exportActions, SWT.PUSH);
+        copyPng.setText("Copy PNG");
+        copyPng.setToolTipText("Copy the current chart to the system clipboard");
+        copyPng.addListener(SWT.Selection, event -> exportCurrentChart(true));
 
         ViewTheme.compact(configurationGroup);
         ViewTheme.improveContrast(configurationGroup);
@@ -937,6 +960,43 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private static String formatAxisMaximum(double value) {
         return value == Math.rint(value) ? Long.toString((long) value) : Double.toString(value);
+    }
+
+    private void exportCurrentChart(boolean copyToClipboard) {
+        if (chartCanvas == null || chartCanvas.isDisposed() || snapshot == null) {
+            return;
+        }
+        Image image = chartCanvas.captureImage();
+        try {
+            if (copyToClipboard) {
+                Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
+                try {
+                    clipboard.setContents(new Object[] { image.getImageData() },
+                            new Transfer[] { ImageTransfer.getInstance() });
+                } finally {
+                    clipboard.dispose();
+                }
+                MessageDialog.openInformation(content.getShell(), "Chart copied",
+                        "The current chart image was copied to the clipboard.");
+                return;
+            }
+            FileDialog dialog = new FileDialog(content.getShell(), SWT.SAVE);
+            dialog.setText("Save chart as PNG");
+            dialog.setFilterNames(new String[] { "PNG image" });
+            dialog.setFilterExtensions(new String[] { "*.png" });
+            dialog.setFileName("results-visualizer-chart.png");
+            String filePath = dialog.open();
+            if (filePath == null || filePath.isBlank()) {
+                return;
+            }
+            ImageLoader loader = new ImageLoader();
+            loader.data = new ImageData[] { image.getImageData() };
+            loader.save(filePath, SWT.IMAGE_PNG);
+        } finally {
+            if (image != null && !image.isDisposed()) {
+                image.dispose();
+            }
+        }
     }
 
     private void updateChart() {

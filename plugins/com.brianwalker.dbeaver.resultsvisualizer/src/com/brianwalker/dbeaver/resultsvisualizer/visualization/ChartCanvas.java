@@ -7,6 +7,8 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 import java.util.List;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.graphics.GC;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Rectangle;
 import org.eclipse.swt.graphics.Transform;
 import org.eclipse.swt.widgets.Canvas;
 import org.eclipse.swt.widgets.Composite;
@@ -42,33 +44,51 @@ public final class ChartCanvas extends Canvas {
         redraw();
     }
 
+    public Image captureImage() {
+        Rectangle bounds = getClientArea();
+        int width = Math.max(1, bounds.width);
+        int height = Math.max(1, bounds.height);
+        Image image = new Image(getDisplay(), width, height);
+        GC graphics = new GC(image);
+        try {
+            paintChart(graphics, bounds);
+        } finally {
+            graphics.dispose();
+        }
+        return image;
+    }
+
     private void paintChart(GC graphics) {
+        paintChart(graphics, getClientArea());
+    }
+
+    private void paintChart(GC graphics, Rectangle bounds) {
         graphics.setAntialias(SWT.ON);
         graphics.setTextAntialias(SWT.ON);
         graphics.setBackground(getDisplay().getSystemColor(SWT.COLOR_LIST_BACKGROUND));
-        graphics.fillRectangle(getClientArea());
+        graphics.fillRectangle(bounds);
         if (prompt != null) {
-            ChartDrawing.drawMessage(graphics, getClientArea(), prompt);
+            ChartDrawing.drawMessage(graphics, bounds, prompt);
             return;
         }
         if (chartType == ChartType.MATRIX || chartType == ChartType.HEATMAP) {
-            int width = Math.max(getClientArea().width,
+            int width = Math.max(bounds.width,
                     dataset.rowLevelCount() * 122 + (dataset.columnTuples().size()
                             + (dataset.matrixOptions().rowTotals() ? 1 : 0)) * 110 + 18);
-            int height = Math.max(getClientArea().height,
+            int height = Math.max(bounds.height,
                     18 + (MatrixChartRenderer.visualRowCount(dataset)
                             + dataset.columnLevelCount()) * 28);
             Transform transform = new Transform(getDisplay());
             try {
                 transform.translate(-getHorizontalBar().getSelection(), -getVerticalBar().getSelection());
                 graphics.setTransform(transform);
-                registry.renderer(chartType).render(graphics, new org.eclipse.swt.graphics.Rectangle(0, 0, width, height), dataset);
+                registry.renderer(chartType).render(graphics, new Rectangle(0, 0, width, height), dataset);
                 graphics.setTransform(null);
             } finally {
                 transform.dispose();
             }
         } else {
-            registry.renderer(chartType).render(graphics, getClientArea(), dataset);
+            registry.renderer(chartType).render(graphics, bounds, dataset);
         }
     }
 
