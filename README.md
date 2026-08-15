@@ -6,7 +6,7 @@ interactive charts and matrix/pivot views without requiring a separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Latest public release:** [v1.0.0](https://github.com/BrianDWalker/ReportVisualizer/releases/tag/v1.0.0)
+**Latest public update version:** `1.0.1.202608152203`
 
 ## Install
 
