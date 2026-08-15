@@ -4,6 +4,8 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
 
 ## Unreleased
 
+## 1.1.0 — 2026-08-15
+
 - Export ▾ now offers PNG, JPEG, vector SVG, and PDF export in addition to Copy
   Image, driven by a new shared `ChartGraphics` rendering abstraction so every
   format renders through the exact same chart/matrix layout code as the
@@ -98,10 +100,9 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
 - Known/deferred: chart hover tooltips, point-level highlighting, and
   zoom/pan interactions are not implemented; the built-in legend (already
   present) is the only interactive affordance today. Matrix/Pivot visual
-  polish beyond the existing theming, and SVG/PDF export (only PNG
-  save/copy exist), are also deferred. Release-artifact signing was not
-  investigated in this pass. These are called out explicitly rather than
-  claimed as done.
+  polish beyond the existing theming is also deferred. Release-artifact
+  signing was not investigated in this pass. These are called out explicitly
+  rather than claimed as done.
 
 ## 1.0.1 — 2026-08-15
 
