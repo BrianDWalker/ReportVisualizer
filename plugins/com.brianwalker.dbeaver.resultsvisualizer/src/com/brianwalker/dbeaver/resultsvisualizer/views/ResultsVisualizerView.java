@@ -43,6 +43,7 @@ import java.util.List;
 import org.eclipse.jface.window.Window;
 import org.eclipse.jface.dialogs.InputDialog;
 import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.accessibility.AccessibleAdapter;
 import org.eclipse.swt.accessibility.AccessibleEvent;
@@ -63,6 +64,7 @@ import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
 import org.eclipse.ui.part.ViewPart;
+import org.eclipse.ui.dialogs.ElementListSelectionDialog;
 
 /** Dockable interactive visualization builder driven by the active DBeaver result set. */
 public final class ResultsVisualizerView extends ViewPart {
@@ -750,7 +752,8 @@ public final class ResultsVisualizerView extends ViewPart {
             MessageDialog.openError(content.getShell(), "Preset not saved", "Preset name is required.");
             return;
         }
-        presetStore.save(name, snapshot, configuration, matrixOptions);
+        presetStore.save(name, baseSnapshot == null ? snapshot : baseSnapshot, configuration, matrixOptions,
+                resultIndexes(matrixValues), slicers, sortRules, calculatedFields);
         MessageDialog.openInformation(content.getShell(), "Preset saved",
                 "Saved '" + name + "' for '" + snapshot.sourceName() + "'.");
     }
@@ -759,61 +762,78 @@ public final class ResultsVisualizerView extends ViewPart {
         if (snapshot == null) {
             return;
         }
-        List<VisualizerPreset> available = presetStore.listFor(snapshot);
-        String prompt = available.isEmpty()
-                ? "No saved presets match this result shape yet. Enter a preset name anyway."
-                : "Enter the preset name to restore for the current result shape.\nSaved for this result: "
-                        + available.stream().map(VisualizerPreset::name)
-                                .collect(java.util.stream.Collectors.joining(", "));
-        InputDialog dialog = new InputDialog(content.getShell(), "Load visualization preset", prompt,
-                "", value -> value != null && !value.trim().isEmpty() ? null : "Preset name is required.");
-        if (dialog.open() != Window.OK) {
-            return;
-        }
-        String name = dialog.getValue().trim();
-        var preset = presetStore.load(name, snapshot);
-        if (preset.isEmpty()) {
-            MessageDialog.openInformation(content.getShell(), "Preset not found",
-                    "No saved preset named '" + name + "' matches this result set.");
-            return;
-        }
-        VisualizerPreset loaded = preset.get();
+        ResultSetSnapshot presetShape = baseSnapshot == null ? snapshot : baseSnapshot;
+        List<VisualizerPreset> available = presetStore.listFor(presetShape);
+        VisualizerPreset loaded = choosePreset("Load visualization preset", "Choose a preset to restore.", available);
+        if (loaded == null) return;
         configuration = loaded.toConfiguration();
         matrixOptions = loaded.matrixOptions();
-        initializeDimensionSelections(snapshot);
+        calculatedFields.clear();
+        calculatedFields.addAll(loaded.calculatedFields());
+        slicers.clear();
+        slicers.addAll(loaded.slicers());
+        sortRules = new ArrayList<>(loaded.sortRules());
+        if (baseSnapshot != null) {
+            CalculatedFieldProjection projection = calculatedFieldService.project(baseSnapshot, calculatedFields);
+            updateFieldStatus(projection.errors());
+            snapshot = projection.snapshot();
+        }
+        restorePresetSelections(snapshot, loaded);
         populateControls(snapshot);
         updateRoleLabels();
+        updateSlicerLabel();
+        updateSortButton();
         updateChart();
         MessageDialog.openInformation(content.getShell(), "Preset loaded",
-                "Restored preset '" + name + "'.");
+                "Restored preset '" + loaded.name() + "'.");
     }
 
     private void deleteVisualizationPreset() {
         if (snapshot == null) {
             return;
         }
-        List<VisualizerPreset> available = presetStore.listFor(snapshot);
-        String prompt = available.isEmpty()
-                ? "No saved presets match this result shape."
-                : "Enter the preset name to delete.\nSaved for this result: "
-                        + available.stream().map(VisualizerPreset::name)
-                                .collect(java.util.stream.Collectors.joining(", "));
+        List<VisualizerPreset> available = presetStore.listFor(baseSnapshot == null ? snapshot : baseSnapshot);
+        String prompt = "No saved presets match this result shape.";
         if (available.isEmpty()) {
             MessageDialog.openInformation(content.getShell(), "No presets", prompt);
             return;
         }
-        InputDialog dialog = new InputDialog(content.getShell(), "Delete visualization preset", prompt,
-                "", value -> value != null && !value.trim().isEmpty() ? null : "Preset name is required.");
-        if (dialog.open() != Window.OK) {
-            return;
-        }
-        String name = dialog.getValue().trim();
-        boolean removed = presetStore.delete(name);
+        VisualizerPreset selected = choosePreset("Delete visualization preset", "Choose a preset to delete.", available);
+        if (selected == null) return;
+        boolean removed = presetStore.delete(selected.name());
         if (removed) {
-            MessageDialog.openInformation(content.getShell(), "Preset deleted", "Deleted preset '" + name + "'.");
+            MessageDialog.openInformation(content.getShell(), "Preset deleted", "Deleted preset '" + selected.name() + "'.");
         } else {
             MessageDialog.openInformation(content.getShell(), "Preset not found",
-                    "No saved preset named '" + name + "' was found.");
+                    "The selected preset was no longer available.");
+        }
+    }
+
+    private VisualizerPreset choosePreset(String title, String message, List<VisualizerPreset> available) {
+        if (available.isEmpty()) {
+            MessageDialog.openInformation(content.getShell(), "No presets", "No saved presets match this result shape.");
+            return null;
+        }
+        ElementListSelectionDialog dialog = new ElementListSelectionDialog(content.getShell(), new LabelProvider() {
+            @Override public String getText(Object element) { return ((VisualizerPreset) element).name(); }
+        });
+        dialog.setTitle(title);
+        dialog.setMessage(message);
+        dialog.setElements(available.toArray());
+        return dialog.open() == Window.OK ? (VisualizerPreset) dialog.getFirstResult() : null;
+    }
+
+    private void restorePresetSelections(ResultSetSnapshot value, VisualizerPreset preset) {
+        activeXChoice = configuration.xColumnIndex() < 0 ? null : DimensionChoice.result(value, configuration.xColumnIndex());
+        activeSeriesChoice = configuration.seriesColumnIndex() < 0 ? null : DimensionChoice.result(value, configuration.seriesColumnIndex());
+        matrixRows = configuration.xColumnIndexes().stream().map(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        matrixColumns = configuration.seriesColumnIndexes().stream().map(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        matrixValues = preset.matrixValueColumnIndexes().stream().map(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if (matrixValues.isEmpty() && configuration.valueColumnIndex() >= 0) {
+            matrixValues.add(DimensionChoice.result(value, configuration.valueColumnIndex()));
         }
     }
 

@@ -4,6 +4,16 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
 
 ## Unreleased
 
+## 1.1.1 — 2026-08-15
+
+- Saved presets now restore the full visualization state, including ordered
+  chart/Matrix field assignments, multiple Matrix values, aggregation, Y
+  maximum, totals/subtotals, slicers, sorts, and referenced calculated fields.
+  Loading no longer reinitializes and overwrites saved X/Values/Series choices.
+  Load and Delete use a selectable compatible-preset list, while exact-name
+  versioned preference keys prevent sanitized-name collisions and corrupt saved
+  entries are ignored safely.
+
 ## 1.1.0 — 2026-08-15
 
 - Export ▾ now offers PNG, JPEG, vector SVG, and PDF export in addition to Copy
