@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -25,7 +25,7 @@ jobs:
           test -n "$(find plugins/com.brianwalker.dbeaver.resultsvisualizer/target -maxdepth 1 -name '*.jar' -print -quit)"
           test -n "$(find features/com.brianwalker.dbeaver.resultsvisualizer.feature/target -maxdepth 1 -name '*.jar' -print -quit)"
       - name: Upload clean p2 repository
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: results-visualizer-p2
           path: releng/com.brianwalker.dbeaver.resultsvisualizer.repository/target/repository/
