@@ -152,9 +152,12 @@ From a fresh clone, use Java 21 and run:
 
 The script runs the full Maven/Tycho build and test suite, creates a clean p2
 repository from scratch, and validates that exactly one Results Visualizer
-version is exposed. The Eclipse qualifier is pinned in `.mvn/maven.config`;
-change it only when publishing a new build of changed source. Product releases
-use semantic versions in the bundle and feature definitions.
+version is exposed. The Eclipse qualifier (the `.qualifier` suffix in the
+bundle/feature versions) is generated fresh by Tycho on every build from the
+current build timestamp — it is not pinned in `.mvn/maven.config` or anywhere
+else, so each published build gets a distinct, newer qualifier and DBeaver's
+**Help > Check for Updates** can detect it as an available update. Product
+releases use semantic versions in the bundle and feature definitions.
 
 The generated installable repository is:
 
