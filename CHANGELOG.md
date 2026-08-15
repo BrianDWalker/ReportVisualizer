@@ -4,6 +4,14 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
 
 ## Unreleased
 
+## 1.1.2 — 2026-08-15
+
+- Fixed Source Query aggregate-result rebinding: returned aliases now populate
+  X/Values/Series and Matrix controls before the pending query is cleared.
+  Reopening Source Query from aggregate mode uses the original result schema,
+  so aggregate-only aliases no longer fail SQL field translation; Back to
+  Original restores the pre-aggregate visualization.
+
 ## 1.1.1 — 2026-08-15
 
 - Saved presets now restore the full visualization state, including ordered
