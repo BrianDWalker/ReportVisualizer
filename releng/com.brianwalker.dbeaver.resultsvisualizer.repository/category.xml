@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site>
+   <feature
+         id="com.brianwalker.dbeaver.resultsvisualizer.feature"
+         version="0.0.0">
+      <category name="results-visualizer"/>
+   </feature>
+   <category-def
+         name="results-visualizer"
+         label="Results Visualizer for DBeaver">
+      <description>
+         Local visualization tools for DBeaver SQL results.
+      </description>
+   </category-def>
+</site>

@@ -1,0 +1,68 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build, test, and validate clean p2 repository
+        run: ./scripts/build-update-site.sh
+      - name: Prepare website and offline installer
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository=releng/com.brianwalker.dbeaver.resultsvisualizer.repository/target/repository
+          version=$(find "$repository/plugins" -maxdepth 1 -name 'com.brianwalker.dbeaver.resultsvisualizer_*.jar' -printf '%f\n' | sed -E 's/^.*_([0-9][0-9.]*)\.jar$/\1/')
+          test -n "$version"
+          cp docs/update-site-index.html "$repository/index.html"
+          touch "$repository/.nojekyll"
+          mkdir -p _release
+          (cd "$repository" && zip -qr "$GITHUB_WORKSPACE/_release/Results-Visualizer-$version.zip" .)
+          sha256sum _release/Results-Visualizer-$version.zip > _release/SHA256SUMS.txt
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Publish latest-only repository to gh-pages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repository="$GITHUB_WORKSPACE/releng/com.brianwalker.dbeaver.resultsvisualizer.repository/target/repository"
+          publish=$(mktemp -d)
+          cp -R "$repository/." "$publish/"
+          cd "$publish"
+          git init -b gh-pages
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Publish Results Visualizer ${{ steps.package.outputs.version }}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:gh-pages
+      - name: Create GitHub Release for a tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" _release/* \
+            --title "Results Visualizer ${GITHUB_REF_NAME}" \
+            --generate-notes
+      - name: Upload offline installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-visualizer-${{ steps.package.outputs.version }}
+          path: _release/
