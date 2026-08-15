@@ -143,8 +143,8 @@ public final class ResultsVisualizerView extends ViewPart {
         messageLabel.setText("No active result set available.");
 
         rowLimitWarning = new Label(content, SWT.WRAP);
-        rowLimitWarning.setText(formatRowLimitWarning(0));
-        rowLimitWarning.setToolTipText("Use Source Query for a full, source-level aggregate.");
+        rowLimitWarning.setText(formatRowLimitWarning());
+        rowLimitWarning.setToolTipText(formatRowLimitTooltip(0));
         rowLimitWarning.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         setVisible(rowLimitWarning, false);
 
@@ -194,6 +194,26 @@ public final class ResultsVisualizerView extends ViewPart {
         body.setText("Visualization");
         body.setLayout(new GridLayout(1, false));
         body.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
+        Composite chartHeader = new Composite(body, SWT.NONE);
+        chartHeader.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout chartHeaderLayout = new GridLayout(2, false);
+        chartHeaderLayout.marginWidth = 0;
+        chartHeaderLayout.marginHeight = 0;
+        chartHeader.setLayout(chartHeaderLayout);
+        Label chartHeaderSpacer = new Label(chartHeader, SWT.NONE);
+        chartHeaderSpacer.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        Button exportButton = new Button(chartHeader, SWT.PUSH);
+        exportButton.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false));
+        exportButton.setText("Export ▾");
+        exportButton.setToolTipText("Save or copy the current chart as a PNG image");
+        exportButton.addListener(SWT.Selection, event -> showDropdownMenu(exportButton, menu -> {
+            addMenuItem(menu, "Save PNG…", "Export the current chart as a PNG file",
+                    () -> exportCurrentChart(false));
+            addMenuItem(menu, "Copy PNG", "Copy the current chart to the system clipboard",
+                    () -> exportCurrentChart(true));
+        }));
+
         chartCanvas = new ChartCanvas(body, SWT.BORDER, rendererRegistry);
         chartCanvas.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
     }
@@ -362,23 +382,6 @@ public final class ResultsVisualizerView extends ViewPart {
         setAccessibleName(reset, "Reset Visualization");
         reset.setToolTipText("Clear field assignments without changing SQL or results");
         reset.addListener(SWT.Selection, event -> resetVisualization());
-
-        Composite exportActions = new Composite(configurationGroup, SWT.NONE);
-        exportActions.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout exportLayout = new GridLayout(1, false);
-        exportLayout.marginWidth = 0;
-        exportLayout.marginHeight = 0;
-        exportLayout.horizontalSpacing = 6;
-        exportActions.setLayout(exportLayout);
-        Button exportButton = new Button(exportActions, SWT.PUSH);
-        exportButton.setText("Export ▾");
-        exportButton.setToolTipText("Save or copy the current chart as a PNG image");
-        exportButton.addListener(SWT.Selection, event -> showDropdownMenu(exportButton, menu -> {
-            addMenuItem(menu, "Save PNG…", "Export the current chart as a PNG file",
-                    () -> exportCurrentChart(false));
-            addMenuItem(menu, "Copy PNG", "Copy the current chart to the system clipboard",
-                    () -> exportCurrentChart(true));
-        }));
 
         ViewTheme.compact(configurationGroup);
         ViewTheme.improveContrast(configurationGroup);
@@ -586,8 +589,11 @@ public final class ResultsVisualizerView extends ViewPart {
         snapshot = aggregateResult;
         String source = aggregateResult.sourceName().isBlank() ? "Aggregate result" : aggregateResult.sourceName();
         summaryLabel.setText(source + " — " + aggregateResult.columns().size() + " fields, "
-                + aggregateResult.availableRowCount() + " rows" + (aggregateResult.truncated() ? ", row limit reached" : ""));
-        if (aggregateResult.truncated()) rowLimitWarning.setText(formatRowLimitWarning(aggregateResult.configuredRowLimit()));
+                + aggregateResult.availableRowCount() + " rows");
+        if (aggregateResult.truncated()) {
+            rowLimitWarning.setText(formatRowLimitWarning());
+            rowLimitWarning.setToolTipText(formatRowLimitTooltip(aggregateResult.configuredRowLimit()));
+        }
         setVisible(rowLimitWarning, aggregateResult.truncated());
         setVisible(messageLabel, false);
         setVisible(body, true);
@@ -706,10 +712,12 @@ public final class ResultsVisualizerView extends ViewPart {
         populateControls(newSnapshot);
 
         String source = newSnapshot.sourceName().isBlank() ? "Active result set" : newSnapshot.sourceName();
-        String copied = newSnapshot.truncated() ? ", row limit reached" : "";
         summaryLabel.setText(source + " — " + newSnapshot.columns().size() + " fields, "
-                + newSnapshot.availableRowCount() + " rows" + copied);
-        if (newSnapshot.truncated()) rowLimitWarning.setText(formatRowLimitWarning(newSnapshot.configuredRowLimit()));
+                + newSnapshot.availableRowCount() + " rows");
+        if (newSnapshot.truncated()) {
+            rowLimitWarning.setText(formatRowLimitWarning());
+            rowLimitWarning.setToolTipText(formatRowLimitTooltip(newSnapshot.configuredRowLimit()));
+        }
         setVisible(rowLimitWarning, newSnapshot.truncated());
         setVisible(messageLabel, false);
         setVisible(body, true);
@@ -1230,15 +1238,24 @@ public final class ResultsVisualizerView extends ViewPart {
     }
 
     /**
-     * Short, dynamic row-limit warning naming the actual configured DBeaver row cap
-     * ({@code ModelPreferences.RESULT_SET_MAX_ROWS}), rather than a long static paragraph
-     * describing the limit in the abstract. A non-positive limit means DBeaver reported no
-     * configured cap for this result, so the message falls back to a limit-agnostic phrase.
+     * Short, static row-limit warning shown under the summary line. The actual configured
+     * DBeaver row cap ({@code ModelPreferences.RESULT_SET_MAX_ROWS}) and the suggestion to use
+     * Source Query for a full, source-level aggregate are surfaced via the label's tooltip
+     * (see {@link #formatRowLimitTooltip(int)}) rather than in the permanent on-screen text.
      */
-    private static String formatRowLimitWarning(int configuredRowLimit) {
-        return configuredRowLimit > 0
-                ? "⚠ Showing only the first " + configuredRowLimit + " rows (DBeaver's row limit)."
-                : "⚠ Row limit reached; not all source rows are shown.";
+    private static String formatRowLimitWarning() {
+        return "⚠ Row limit reached — visualization may be partial.";
+    }
+
+    /**
+     * Tooltip text for the row-limit warning, naming the actual configured DBeaver row cap when
+     * known and pointing to Source Query for a full, source-level aggregate.
+     */
+    private static String formatRowLimitTooltip(int configuredRowLimit) {
+        String limitPhrase = configuredRowLimit > 0
+                ? "Showing only the first " + configuredRowLimit + " rows (DBeaver's row limit). "
+                : "Not all source rows are shown. ";
+        return limitPhrase + "Use Source Query for a full, source-level aggregate.";
     }
 
     private void exportCurrentChart(boolean copyToClipboard) {
