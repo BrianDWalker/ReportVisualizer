@@ -91,10 +91,54 @@ require changing result-set integration: implement `ChartRenderer`, add a
 `ChartType`, and register it. Shared axis, scale, label, and empty-state drawing
 lives in `ChartDrawing`.
 
-Rendering is entirely in-process using SWT `GC`. There is no embedded browser,
-web server, external JavaScript runtime, Python process, cloud API, or network
-request. SQL nulls remain null in immutable snapshots; numeric nulls and
-non-finite values are skipped when building chart points.
+Rendering is entirely in-process. There is no embedded browser, web server,
+external JavaScript runtime, Python process, cloud API, or network request.
+SQL nulls remain null in immutable snapshots; numeric nulls and non-finite
+values are skipped when building chart points.
+
+### Shared rendering abstraction (`ChartGraphics`)
+
+Every `ChartRenderer` draws through a `ChartGraphics` interface rather than a
+raw SWT `GC`, so the identical layout code drives both on-screen rendering and
+file export with no duplicated per-format drawing logic:
+
+| Type | Responsibility |
+| --- | --- |
+| `ChartGraphics` | Small drawing-surface interface (`drawLine`, `drawText`, `fillRectangle`, `fillOval`, `fillArc`, `fillPolygon`, `textExtent`, …) that every renderer is written against |
+| `ChartColor` / `ChartTheme` | Device-independent RGB color and theme snapshot, replacing SWT `Color`/system-color lookups in shared/renderer code so no device-scoped color allocation or disposal is needed |
+| `SwtChartGraphics` | Delegates every call to a live SWT `GC`, used for on-screen `ChartCanvas` painting and raster (PNG/JPEG/PDF) capture |
+| `SvgChartGraphics` | Builds a real vector SVG XML document instead of painting pixels, used for SVG export |
+
+`ChartCanvas` wraps its `GC` in `SwtChartGraphics` before calling into the
+registry, and exposes `renderToSvg()`, which builds an `SvgChartGraphics`
+sized to the chart's full content and renders through the same
+`ChartRendererRegistry`/`ChartRenderer` call used on screen. `VisualizationExportService`
+(in the `visualization` package) is the single place that turns a `ChartCanvas`
+into PNG, JPEG, SVG, or PDF bytes:
+
+| Format | Mechanism |
+| --- | --- |
+| PNG / JPEG | `ChartCanvas.captureFullImage()` renders the chart's full, unscrolled content into an SWT `Image` via `SwtChartGraphics`, then SWT's `ImageLoader` encodes it |
+| SVG | `ChartCanvas.renderToSvg()` — a genuine vector document, not a screenshot |
+| PDF | A minimal, dependency-free single-page PDF (`PdfImageWriter`, in `services`) wraps a higher-resolution JPEG capture as a `DCTDecode` image `XObject`. This is a documented raster fallback: true vector PDF content would require a second reimplementation of every renderer against a PDF content-stream graphics abstraction, which is disproportionate to the benefit for this release |
+
+`ChartCanvas.captureFullImage()`/`renderToImage()` and `contentSize()` (backed by
+`MatrixCanvasMetrics`) ensure Matrix/Pivot Table and Heatmap export always
+captures the entire matrix, not just the currently visible scrolled viewport —
+previously, PNG/Copy Image export of a matrix larger than the on-screen area
+silently produced a cropped image.
+
+SVG text is measured with a simple, device-independent average-character-width
+estimate rather than live SWT font metrics, so SVG export never requires a
+running `Display` connection (this keeps SVG generation usable in headless
+CI/tests). This means on-screen and exported label positions/wrap points may
+differ by a few pixels — a deliberate, documented trade-off, not a defect.
+
+No new external dependency was introduced for JPEG, SVG, or PDF export: JPEG
+reuses SWT's built-in `ImageLoader`/`SWT.IMAGE_JPEG` encoder (already used for
+PNG), SVG is hand-built XML text, and PDF is a hand-written minimal
+single-object-per-section PDF (header, catalog, pages, page, image `XObject`,
+content stream, xref table, trailer).
 
 ## Part 4 interactive builder
 

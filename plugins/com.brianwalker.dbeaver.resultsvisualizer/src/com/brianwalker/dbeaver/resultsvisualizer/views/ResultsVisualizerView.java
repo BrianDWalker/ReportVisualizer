@@ -36,6 +36,8 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSlicer;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSorter;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixDisplayOptions;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationExportService;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationExportService.ExportFormat;
 import java.util.ArrayList;
 import java.util.List;
 import org.eclipse.jface.window.Window;
@@ -49,8 +51,6 @@ import org.eclipse.swt.dnd.Clipboard;
 import org.eclipse.swt.dnd.ImageTransfer;
 import org.eclipse.swt.dnd.Transfer;
 import org.eclipse.swt.graphics.Image;
-import org.eclipse.swt.graphics.ImageData;
-import org.eclipse.swt.graphics.ImageLoader;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
@@ -206,12 +206,18 @@ public final class ResultsVisualizerView extends ViewPart {
         Button exportButton = new Button(chartHeader, SWT.PUSH);
         exportButton.setLayoutData(new GridData(SWT.RIGHT, SWT.CENTER, false, false));
         exportButton.setText("Export ▾");
-        exportButton.setToolTipText("Save or copy the current chart as a PNG image");
+        exportButton.setToolTipText("Save or copy the current chart as an image or document");
         exportButton.addListener(SWT.Selection, event -> showDropdownMenu(exportButton, menu -> {
+            addMenuItem(menu, "Copy Image", "Copy the current chart to the system clipboard",
+                    this::copyChartToClipboard);
             addMenuItem(menu, "Save PNG…", "Export the current chart as a PNG file",
-                    () -> exportCurrentChart(false));
-            addMenuItem(menu, "Copy PNG", "Copy the current chart to the system clipboard",
-                    () -> exportCurrentChart(true));
+                    () -> exportChartToFile(ExportFormat.PNG));
+            addMenuItem(menu, "Save JPEG…", "Export the current chart as a JPEG file",
+                    () -> exportChartToFile(ExportFormat.JPEG));
+            addMenuItem(menu, "Save SVG…", "Export the current chart as a vector SVG file",
+                    () -> exportChartToFile(ExportFormat.SVG));
+            addMenuItem(menu, "Save PDF…", "Export the current chart as a PDF document",
+                    () -> exportChartToFile(ExportFormat.PDF));
         }));
 
         chartCanvas = new ChartCanvas(body, SWT.BORDER, rendererRegistry);
@@ -1258,40 +1264,52 @@ public final class ResultsVisualizerView extends ViewPart {
         return limitPhrase + "Use Source Query for a full, source-level aggregate.";
     }
 
-    private void exportCurrentChart(boolean copyToClipboard) {
+    private void copyChartToClipboard() {
         if (chartCanvas == null || chartCanvas.isDisposed() || snapshot == null) {
             return;
         }
         Image image = chartCanvas.captureImage();
         try {
-            if (copyToClipboard) {
-                Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
-                try {
-                    clipboard.setContents(new Object[] { image.getImageData() },
-                            new Transfer[] { ImageTransfer.getInstance() });
-                } finally {
-                    clipboard.dispose();
-                }
-                MessageDialog.openInformation(content.getShell(), "Chart copied",
-                        "The current chart image was copied to the clipboard.");
-                return;
+            Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
+            try {
+                clipboard.setContents(new Object[] { image.getImageData() },
+                        new Transfer[] { ImageTransfer.getInstance() });
+            } finally {
+                clipboard.dispose();
             }
-            FileDialog dialog = new FileDialog(content.getShell(), SWT.SAVE);
-            dialog.setText("Save chart as PNG");
-            dialog.setFilterNames(new String[] { "PNG image" });
-            dialog.setFilterExtensions(new String[] { "*.png" });
-            dialog.setFileName("results-visualizer-chart.png");
-            String filePath = dialog.open();
-            if (filePath == null || filePath.isBlank()) {
-                return;
-            }
-            ImageLoader loader = new ImageLoader();
-            loader.data = new ImageData[] { image.getImageData() };
-            loader.save(filePath, SWT.IMAGE_PNG);
+            MessageDialog.openInformation(content.getShell(), "Chart copied",
+                    "The current chart image was copied to the clipboard.");
         } finally {
-            if (image != null && !image.isDisposed()) {
+            if (!image.isDisposed()) {
                 image.dispose();
             }
+        }
+    }
+
+    private void exportChartToFile(ExportFormat format) {
+        if (chartCanvas == null || chartCanvas.isDisposed() || snapshot == null) {
+            return;
+        }
+        FileDialog dialog = new FileDialog(content.getShell(), SWT.SAVE);
+        dialog.setText("Save chart as " + format.name());
+        dialog.setFilterNames(new String[] { format.description() });
+        dialog.setFilterExtensions(format.filterExtensions());
+        dialog.setFileName(format.defaultFileName());
+        String filePath = dialog.open();
+        if (filePath == null || filePath.isBlank()) {
+            return;
+        }
+        try {
+            byte[] content = switch (format) {
+                case PNG -> VisualizationExportService.pngBytes(chartCanvas);
+                case JPEG -> VisualizationExportService.jpegBytes(chartCanvas);
+                case SVG -> VisualizationExportService.svgBytes(chartCanvas);
+                case PDF -> VisualizationExportService.pdfBytes(chartCanvas);
+            };
+            java.nio.file.Files.write(java.nio.file.Path.of(filePath), content);
+        } catch (Exception e) {
+            MessageDialog.openError(this.content.getShell(), "Export failed",
+                    "The chart could not be exported: " + e.getMessage());
         }
     }
 

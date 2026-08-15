@@ -3,8 +3,6 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
 /** Pie and donut renderer that totals all series by category. */
@@ -13,7 +11,7 @@ public final class PieChartRenderer implements ChartRenderer {
     public PieChartRenderer(ChartType type) { this.type = type; }
     @Override public ChartType type() { return type; }
 
-    @Override public void render(GC gc, Rectangle bounds, ChartDataset data) {
+    @Override public void render(ChartGraphics gc, Rectangle bounds, ChartDataset data) {
         Map<String, Double> values = new LinkedHashMap<>();
         data.points().forEach(p -> values.merge(p.label(), Math.max(0, p.y()), Double::sum));
         double total = values.values().stream().mapToDouble(Double::doubleValue).sum();
@@ -29,20 +27,20 @@ public final class PieChartRenderer implements ChartRenderer {
             start += arc;
             int legendY = bounds.y + 24 + index * 22;
             gc.fillRectangle(x + diameter + 26, legendY + 3, 12, 12);
-            gc.setForeground(gc.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
+            gc.setForeground(gc.theme().foreground());
             gc.drawText(entry.getKey() + "  "
                     + new java.text.DecimalFormat("0.##%").format(entry.getValue() / total),
-                    x + diameter + 44, legendY, true);
+                    x + diameter + 44, legendY);
             index++;
         }
         if (type == ChartType.DONUT) {
             int hole = diameter / 2;
-            gc.setBackground(gc.getDevice().getSystemColor(SWT.COLOR_LIST_BACKGROUND));
+            gc.setBackground(gc.theme().background());
             gc.fillOval(x + (diameter - hole) / 2, y + (diameter - hole) / 2, hole, hole);
             String totalText = ChartDrawing.formatNumber(total);
-            gc.setForeground(gc.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
-            gc.drawText(totalText, x + (diameter - gc.textExtent(totalText).x) / 2,
-                    y + (diameter - gc.textExtent(totalText).y) / 2, true);
+            gc.setForeground(gc.theme().foreground());
+            gc.drawText(totalText, x + (diameter - gc.textExtent(totalText).width()) / 2,
+                    y + (diameter - gc.textExtent(totalText).height()) / 2);
         }
     }
 }

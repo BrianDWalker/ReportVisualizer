@@ -2,7 +2,6 @@
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 import java.util.List;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
 /** Filled categorical area chart, optionally stacking series. */
@@ -12,7 +11,7 @@ public final class AreaChartRenderer implements ChartRenderer {
     public AreaChartRenderer(ChartType type, boolean stacked) { this.type = type; this.stacked = stacked; }
     @Override public ChartType type() { return type; }
 
-    @Override public void render(GC gc, Rectangle bounds, ChartDataset data) {
+    @Override public void render(ChartGraphics gc, Rectangle bounds, ChartDataset data) {
         if (data.points().isEmpty()) { ChartDrawing.drawMessage(gc, bounds, "No values to chart."); return; }
         Rectangle plot = ChartDrawing.plotBounds(bounds);
         List<String> categories = data.categories(), series = data.seriesNames();
