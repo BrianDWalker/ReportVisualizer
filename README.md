@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Latest public update version:** `1.0.1.202608152221`
+**Latest public update version:** `1.1.0.202608152300`
 
 ## Install
 
