@@ -24,8 +24,26 @@ jobs:
         run: |
           test -n "$(find plugins/com.brianwalker.dbeaver.resultsvisualizer/target -maxdepth 1 -name '*.jar' -print -quit)"
           test -n "$(find features/com.brianwalker.dbeaver.resultsvisualizer.feature/target -maxdepth 1 -name '*.jar' -print -quit)"
+      - name: Record resolved DBeaver core version
+        # DBeaver does not publish a version-pinned public p2 repository for the CE
+        # product (only the floating https://dbeaver.io/update/ce/latest/ alias), so
+        # this project cannot pin a second, older target the way it can for the Eclipse
+        # platform. As a substitute for reproducibility, capture and publish the exact
+        # DBeaver core version this build actually resolved and validated against.
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL https://dbeaver.io/update/ce/latest/plugins/ \
+            | grep -oE 'org\.jkiss\.dbeaver\.core_[0-9.]+' | head -1 | sed 's/org.jkiss.dbeaver.core_//')
+          test -n "$version"
+          echo "Resolved against DBeaver CE $version (via the floating 'latest' update site)"
+          echo "$version" > dbeaver-core-version.txt
       - name: Upload clean p2 repository
         uses: actions/upload-artifact@v7
         with:
           name: results-visualizer-p2
           path: releng/com.brianwalker.dbeaver.resultsvisualizer.repository/target/repository/
+      - name: Upload resolved DBeaver version marker
+        uses: actions/upload-artifact@v7
+        with:
+          name: dbeaver-core-version
+          path: dbeaver-core-version.txt

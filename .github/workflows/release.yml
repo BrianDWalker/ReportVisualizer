@@ -53,6 +53,16 @@ jobs:
           git commit -m "Publish Results Visualizer ${{ steps.package.outputs.version }}"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin HEAD:gh-pages
+      - name: Record resolved DBeaver core version
+        # See build.yml for why this is captured instead of a pinned p2 target: DBeaver
+        # only publishes a floating "latest" CE update site, no version-pinned one.
+        id: dbeaver_version
+        run: |
+          set -euo pipefail
+          version=$(curl -fsSL https://dbeaver.io/update/ce/latest/plugins/ \
+            | grep -oE 'org\.jkiss\.dbeaver\.core_[0-9.]+' | head -1 | sed 's/org.jkiss.dbeaver.core_//')
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release for a tag
         if: startsWith(github.ref, 'refs/tags/')
         env:
@@ -60,6 +70,7 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" _release/* \
             --title "Results Visualizer ${GITHUB_REF_NAME}" \
+            --notes "Built and validated against DBeaver Community ${{ steps.dbeaver_version.outputs.version }} (resolved from the floating https://dbeaver.io/update/ce/latest/ update site at build time)." \
             --generate-notes
       - name: Upload offline installer
         uses: actions/upload-artifact@v7

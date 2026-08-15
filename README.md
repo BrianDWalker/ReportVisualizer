@@ -80,10 +80,51 @@ Release downloads and checksums are available on the
 - Installable p2 update-site repository
 - Entirely local SWT rendering: no localhost service, external JavaScript,
   Node.js, Python, cloud service, or database modification at runtime
+- Visualization state (chart configuration, matrix layout, slicers, sorts,
+  calculated fields) is scoped per active result/Grouping panel, keyed by a
+  stable result identity rather than the editor title, and survives switching
+  between panels. Sessions are bounded (LRU, capped) and cleared when the view
+  is disposed
+- Source-query aggregation picks a safe SQL strategy per query: a direct
+  `GROUP BY` rewrite of the original `FROM` clause when structurally safe, or
+  an automatic derived-table fallback (`SELECT ... FROM (original query) rv_source`)
+  for CTEs, joins, `UNION`/`INTERSECT`/`EXCEPT`, multi-statement text, or other
+  structurally ambiguous SQL. The generated SQL preview always reflects the
+  strategy actually used
+- Typed slicers distinguish SQL `NULL` from the literal text `(null)` and
+  compare numeric-looking values numerically rather than as raw strings
+- **Save Preset / Load Preset / Delete Preset** persist a named chart/matrix
+  layout per result shape (source name + column names/types) using Eclipse
+  workspace preferences; loading only offers presets whose saved shape matches
+  the current result, so stale field assignments are never silently applied
+- **Save PNG** and **Copy Image** export the currently rendered chart
+
+## Known limitations
+
+- Identifier quoting used by the SQL rewrite/aggregate builder is a fixed
+  ANSI double-quote and is not yet derived from the active DBeaver
+  datasource's `SQLDialect`, so non-ANSI-quoting dialects (e.g. MySQL/MariaDB
+  in backtick mode) are not fully supported yet
+- Export is limited to PNG (file and clipboard); SVG/PDF export is not
+  implemented
+- There is no dedicated per-controller disposal hook beyond the bounded
+  session cache and view-level cleanup
+- DBeaver publishes no version-pinned public p2 repository for the CE
+  product, so this project always builds against the floating "latest"
+  update site; each build/release records the exact DBeaver core version
+  actually resolved for traceability instead
 
 ## Compatibility
 
-- DBeaver Community 26.1 or newer
+- DBeaver Community: this project builds against the floating
+  `https://dbeaver.io/update/ce/latest/` update site because DBeaver does not
+  currently publish a version-pinned public p2 repository for the CE product
+  (only "deps"/third-party-library repositories are version-pinned, and those
+  do not contain `org.jkiss.dbeaver.model`). As a substitute for
+  reproducibility, every CI build and release resolves and records the exact
+  DBeaver core version it actually validated against (see the
+  `dbeaver-core-version` build artifact and the release notes for each
+  tagged release)
 - Java 21 JDK or JRE (DBeaver distributions normally bundle a compatible runtime)
 - Internet access during the build to resolve Maven/Tycho and the target platform
 

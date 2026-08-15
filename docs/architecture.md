@@ -157,3 +157,45 @@ additional charts, snapshot slicers, general server-side SQL dimensions, and a
 reviewable full-source aggregate query. See
 [`visualization-expansion.md`](visualization-expansion.md) for the current
 behavior and safety boundary.
+
+## v1.1 additions: per-result sessions, SQL rewrite safety, presets
+
+Three architectural additions were made after the surface described above,
+without changing the immutable-snapshot rendering model:
+
+- **Per-result sessions** (`VisualizerSessionManager`, `VisualizerSession`):
+  chart configuration, matrix options, calculated fields, slicers, sort rules,
+  and source-query state are keyed by a stable result identity
+  (`DBeaverResultSetService#activeResultIdentity()` — derived from the active
+  controller and result mode, not the editor title) instead of being global to
+  `ResultsVisualizerView`. The session map is LRU-bounded
+  (`VisualizerSessionManager.MAX_SESSIONS`) and cleared on view disposal, since
+  there is no dedicated per-controller disposal callback available from the
+  DBeaver result-set API surface used here.
+- **DBeaver-aware SQL rewrite strategy** (`DBeaverSqlDialectService`,
+  `AggregateQueryBuilder`, `AggregateQuery`): source-query aggregation chooses
+  between an optimized direct `GROUP BY` rewrite of the original `FROM` clause
+  and a derived-table fallback (`SELECT ... FROM (original query) rv_source`).
+  The decision walks the SQL text tracking parenthesis depth and single-quoted
+  string literals to find a genuinely top-level `FROM`/disqualifying keyword,
+  rather than relying on a plain regex split, so CTEs, joins, set operations,
+  and structurally ambiguous queries fall back safely. Identifier quoting is
+  currently a fixed ANSI double-quote (see the class-level Javadoc for the
+  known MySQL/MariaDB backtick-mode limitation).
+- **Saved visualization presets** (`VisualizerPreset`, `VisualizerPresetStore`):
+  a named chart/matrix layout is persisted via Eclipse `InstanceScope`
+  preferences, keyed by a source signature (result source name plus column
+  name/type shape) rather than any live DBeaver object reference, so loading a
+  preset against a changed/incompatible schema is a safe no-op rather than a
+  silent misapplication of stale field indexes.
+
+Build reproducibility: DBeaver does not publish a version-pinned public p2
+repository for the CE product (only the floating
+`https://dbeaver.io/update/ce/latest/` alias exists; the version-pinned
+`repo.dbeaver.net/p2/ce/<version>/` repositories are a separate third-party
+dependency ("deps") set and do not contain `org.jkiss.dbeaver.model`). As a
+practical substitute, `.github/workflows/build.yml` and `release.yml` resolve
+and record the exact DBeaver core version each build actually validated
+against (via the `dbeaver-core-version` artifact and, for tagged releases,
+the release notes), so historical builds remain traceable to a specific
+DBeaver version even though the update site itself floats.
