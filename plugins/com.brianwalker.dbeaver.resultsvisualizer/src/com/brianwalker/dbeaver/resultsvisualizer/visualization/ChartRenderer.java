@@ -4,12 +4,15 @@
  */
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
-/** Extension point for a local SWT chart renderer. */
+/**
+ * Extension point for a local chart renderer. Renderers draw through {@link ChartGraphics} only,
+ * so the same implementation produces on-screen SWT output ({@link SwtChartGraphics}) and vector
+ * SVG export output ({@link SvgChartGraphics}) without duplicating layout logic.
+ */
 public interface ChartRenderer {
     ChartType type();
 
-    void render(GC graphics, Rectangle bounds, ChartDataset dataset);
+    void render(ChartGraphics graphics, Rectangle bounds, ChartDataset dataset);
 }

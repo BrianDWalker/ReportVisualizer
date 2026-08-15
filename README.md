@@ -1,8 +1,9 @@
-# DBeaver Results Visualizer
+# Results Visualizer for DBeaver
 
-A local Eclipse plug-in that adds a dockable **Results Visualizer** view to
-DBeaver Community. It turns the active SQL result or Grouping result into
-interactive charts and matrix/pivot views without requiring a separate service.
+A local Eclipse/DBeaver extension that adds a dockable **Results Visualizer**
+view to DBeaver desktop editions. It turns the active SQL result or Grouping
+result into interactive charts and matrix/pivot views without requiring a
+separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
@@ -37,7 +38,10 @@ Release downloads and checksums are available on the
 - Renders Bar, Horizontal Bar, Stacked Bar, Line, Area, Stacked Area, Scatter,
   Pie, Donut, Heatmap, and Matrix/Pivot visualizations
 - Automatically chooses a categorical X field and numeric Y field when possible
-- Compact dropdown selectors assign X-Axis, numeric Values, and optional Series fields
+- Compact dropdown selectors assign X-Axis, Values, and optional Series
+  fields. Values accepts any column type: numeric columns support the full
+  SUM/AVG/MIN/MAX/COUNT/COUNT DISTINCT aggregation set, while string,
+  boolean, and date/time columns support COUNT and COUNT DISTINCT
 - Matrix/Pivot switches those roles to Rows, Values, and Columns, supports
   inline ordered hierarchical Row and Column fields, optional subtotals,
   optional row/column totals, and horizontal/vertical scrolling
@@ -55,7 +59,9 @@ Release downloads and checksums are available on the
 - Local SUM, AVG, MIN, MAX, COUNT, and COUNT DISTINCT aggregation without
   rewriting SQL
 - Multi-series bar, line, and scatter rendering with an in-chart legend
-- Matrix Values supports multiple ordered numeric measures in one pivot
+- Matrix Values supports multiple ordered measures of any compatible
+  aggregation in one pivot, following the same numeric/non-numeric
+  aggregation rules as the chart Values well
 - Chart type switching that preserves compatible field assignments
 - Automatic readable Y-axis ceilings (for example 91 becomes 100), with an
   editable Y Max override
@@ -63,9 +69,12 @@ Release downloads and checksums are available on the
 - Formula editor with Name and Expression inputs
 - Calculated fields appear beside result fields and can be assigned to any
   compatible field well; numeric formulas are expanded to source expressions in Source Query
-- Restricted arithmetic expressions support `[field]` references, numeric
-  constants, `+`, `-`, `*`, `/`, parentheses, unary signs, `ABS`, `ROUND`,
-  `CEIL`, `FLOOR`, `SQRT`, `POWER`, `MIN`, and `MAX`
+- Calculated field expressions support `[field]` references, numeric
+  constants, `+`, `-`, `*`, `/`, parentheses, unary signs; the numeric
+  functions `ABS`, `ROUND`, `CEIL`, `FLOOR`, `SQRT`, `POWER`, `MIN`, `MAX`,
+  `LOG`, `EXP`, and `MOD`; the null-tolerant functions `COALESCE`, `NULLIF`,
+  and `IF(condition, whenTrue, whenFalse)`; comparison operators
+  (`= <> != > < >= <=`); and the logical operators `AND`, `OR`, `NOT`
 - The calculated-field guide includes examples and supports double-click field insertion
 - Unknown fields and malformed expressions produce useful validation messages
 - Null, incompatible, divide-by-zero, and non-finite calculations resolve to
@@ -98,47 +107,72 @@ Release downloads and checksums are available on the
   layout per result shape (source name + column names/types) using Eclipse
   workspace preferences; loading only offers presets whose saved shape matches
   the current result, so stale field assignments are never silently applied
-- **Save PNG** and **Copy Image** export the currently rendered chart
+- Visualization export: **Save PNG**, **Save JPEG**, **Save SVG**, **Save PDF**,
+  and **Copy Image** (to the system clipboard) for the currently rendered
+  chart or matrix, sharing the same on-screen rendering pipeline
 
 ## Known limitations
 
-- Identifier quoting is derived directly from the active datasource's
-  `SQLDialect.getIdentifierQuoteStrings()` (the same DBeaver API the platform
-  itself uses to decide quote characters), so it correctly follows the active
-  dialect's declared quote pair, including asymmetric styles such as SQL
-  Server's `[` / `]` brackets, not just symmetric single-character styles like
-  ANSI `"` or MySQL `` ` ``. When no datasource/dialect metadata is available
-  the SQL builder falls back to ANSI double-quote safety instead of guessing a
-  dialect
-- Export is limited to PNG (file and clipboard); SVG/PDF export is not
-  implemented
-- There is no dedicated per-controller disposal hook exposed by DBeaver's
-  `IResultSetListener`/`IResultSetController` API surface; the plugin relies on
-  the bounded LRU session cache plus explicit view-level cleanup
-  (session-switch invalidation and `dispose()`-time clearing) as a deliberate,
-  documented substitute rather than a true controller-lifecycle callback
-- Large-result behavior (10k/50k/100k row aggregation and charting) is covered
-  by automated synthetic-data tests, but no live DBeaver runtime is available
-  in this development environment, so genuine live-DBeaver interactive/runtime
-  validation against a real datasource has not been performed here. See the
-  manual validation checklist in `docs/architecture.md` for the steps a
-  maintainer with a live DBeaver install should still run before broad release
-- DBeaver publishes no version-pinned public p2 repository for the CE
-  product, so this project always builds against the floating "latest"
-  update site; each build/release records the exact DBeaver core version
-  actually resolved for traceability instead
+- Visualization export supports PNG, JPEG, SVG, and PDF (plus Copy Image to
+  clipboard). SVG export is real vector output for standard charts and
+  pie/donut/scatter/heatmap/Matrix content built from the same shared
+  rendering pipeline used on screen. PDF export currently embeds a
+  high-resolution raster of the rendered visualization on a single,
+  appropriately sized page rather than emitting true vector PDF content; this
+  is a deliberate scope decision to avoid a disproportionate increase in
+  packaging complexity for this release, documented here rather than silently
+  shipped as if it were vector output
+- DBeaver does not expose a dedicated close lifecycle callback for every
+  result controller, so ReportVisualizer retains visualization sessions in a
+  bounded cache and automatically cleans them up
+- Large datasets up to 100,000 rows are covered by automated tests, but live
+  interactive performance may vary by database, driver, machine, and DBeaver
+  configuration
+- DBeaver's public CE build target tracks the latest release rather than
+  exposing a permanently version-pinned target repository. Each
+  ReportVisualizer release records the exact DBeaver version used during
+  build and validation
+- Matrix/Pivot export renders the entire matrix content (all rows and
+  columns), not just the currently visible scrolled viewport. Very large
+  matrices are still subject to the existing 2,500-cell on-screen rendering
+  cap
+
+## SQL compatibility
+
+SQL identifier quoting follows the active DBeaver datasource/dialect. If
+dialect metadata is unavailable, standard ANSI double quotes are used as a
+safe fallback. Quoting is derived directly from the active datasource's
+`SQLDialect.getIdentifierQuoteStrings()` (the same DBeaver API the platform
+itself uses to decide quote characters), so it correctly follows the active
+dialect's declared quote pair, including asymmetric styles such as SQL
+Server's `[` / `]` brackets, not just symmetric single-character styles like
+ANSI `"` or MySQL `` ` ``. See [`docs/architecture.md`](docs/architecture.md)
+for the implementation details.
 
 ## Compatibility
 
-- DBeaver Community: this project builds against the floating
-  `https://dbeaver.io/update/ce/latest/` update site because DBeaver does not
-  currently publish a version-pinned public p2 repository for the CE product
-  (only "deps"/third-party-library repositories are version-pinned, and those
-  do not contain `org.jkiss.dbeaver.model`). As a substitute for
-  reproducibility, every CI build and release resolves and records the exact
-  DBeaver core version it actually validated against (see the
-  `dbeaver-core-version` build artifact and the release notes for each
-  tagged release)
+Results Visualizer is an Eclipse/DBeaver extension designed for DBeaver
+desktop editions that support Eclipse extensions.
+
+Built and validated against:
+- DBeaver Community 26.1.4 (or the exact currently recorded resolved build;
+  see the `dbeaver-core-version` build artifact and release notes)
+
+Expected compatible desktop editions:
+- DBeaver Community
+- DBeaver Lite
+- DBeaver Enterprise
+- DBeaver Ultimate
+
+The plugin uses shared DBeaver core, SQL-editor, datasource/dialect, and
+result-set APIs rather than functionality specific to Community Edition.
+Community is currently the primary automated build/test target. Other
+desktop editions are supported by design but should be runtime-validated
+before claiming edition-specific certification. This project does not make
+compatibility claims for CloudBeaver or other server/browser products, which
+are architecturally distinct from the Eclipse/DBeaver desktop extension model
+this plugin targets.
+
 - Java 21 JDK or JRE (DBeaver distributions normally bundle a compatible runtime)
 - Internet access during the build to resolve Maven/Tycho and the target platform
 

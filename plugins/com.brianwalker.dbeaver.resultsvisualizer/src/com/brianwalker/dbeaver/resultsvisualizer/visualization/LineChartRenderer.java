@@ -4,8 +4,6 @@
  */
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
 /** Ordered categorical line chart renderer. */
@@ -16,7 +14,7 @@ public final class LineChartRenderer implements ChartRenderer {
     }
 
     @Override
-    public void render(GC graphics, Rectangle bounds, ChartDataset dataset) {
+    public void render(ChartGraphics graphics, Rectangle bounds, ChartDataset dataset) {
         if (dataset.points().isEmpty()) {
             ChartDrawing.drawMessage(graphics, bounds, "No numeric Y-axis values to chart.");
             return;
@@ -31,7 +29,7 @@ public final class LineChartRenderer implements ChartRenderer {
         java.util.List<String> categories = dataset.categories();
         java.util.List<String> seriesNames = dataset.seriesNames();
         for (int seriesIndex = 0; seriesIndex < seriesNames.size(); seriesIndex++) {
-            org.eclipse.swt.graphics.Color color = ChartDrawing.seriesColor(graphics, seriesIndex);
+            ChartColor color = ChartDrawing.seriesColor(graphics, seriesIndex);
             graphics.setForeground(color);
             graphics.setBackground(color);
             int previousX = 0;
@@ -43,7 +41,7 @@ public final class LineChartRenderer implements ChartRenderer {
                 int y = ChartDrawing.y(plot, point.y(), yRange);
                 if (hasPrevious) graphics.drawLine(previousX, previousY, x, y);
                 graphics.fillOval(x - 4, y - 4, 9, 9);
-                graphics.setBackground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_BACKGROUND));
+                graphics.setBackground(graphics.theme().background());
                 graphics.fillOval(x - 2, y - 2, 5, 5);
                 graphics.setBackground(color);
                 if (ChartDrawing.shouldDrawValueLabel(index, categories.size())) {

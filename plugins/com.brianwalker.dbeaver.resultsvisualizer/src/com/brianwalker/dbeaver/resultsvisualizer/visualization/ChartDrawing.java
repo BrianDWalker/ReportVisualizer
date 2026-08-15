@@ -6,13 +6,9 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 import java.text.DecimalFormat;
 import java.util.List;
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.Color;
-import org.eclipse.swt.graphics.Device;
-import org.eclipse.swt.graphics.GC;
-import org.eclipse.swt.graphics.Point;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartGraphics.LineStyle;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartGraphics.TextSize;
 import org.eclipse.swt.graphics.Rectangle;
-import org.eclipse.swt.widgets.Display;
 
 /** Shared axes, scales, labels, and empty-state drawing. */
 final class ChartDrawing {
@@ -26,9 +22,6 @@ final class ChartDrawing {
             {57, 183, 165}, {240, 107, 107}, {145, 135, 224}, {126, 166, 201},
             {185, 137, 115}, {112, 165, 159}
     };
-    private static Device paletteDevice;
-    private static Color[] lightColors;
-    private static Color[] darkColors;
     static final int LEFT_MARGIN = 66;
     static final int RIGHT_MARGIN = 22;
     static final int TOP_MARGIN = 28;
@@ -96,10 +89,10 @@ final class ChartDrawing {
         return new Range(minimum, maximum);
     }
 
-    static void drawAxes(GC graphics, Rectangle plot, ChartDataset dataset,
+    static void drawAxes(ChartGraphics graphics, Rectangle plot, ChartDataset dataset,
             Range yRange, Range xRange, boolean numericX) {
-        graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_WIDGET_LIGHT_SHADOW));
-        graphics.setLineStyle(SWT.LINE_DOT);
+        graphics.setForeground(graphics.theme().gridLine());
+        graphics.setLineStyle(LineStyle.DOT);
         graphics.setAlpha(90);
         for (int tick = 0; tick <= TICK_COUNT; tick++) {
             int y = plot.y + plot.height - (plot.height * tick / TICK_COUNT);
@@ -107,21 +100,21 @@ final class ChartDrawing {
             double value = yRange.minimum()
                     + (yRange.span() * tick / TICK_COUNT);
             String label = NUMBER_FORMAT.format(value);
-            Point size = graphics.textExtent(label);
-            graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
-            graphics.drawText(label, plot.x - size.x - 7, y - size.y / 2, true);
-            graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_WIDGET_LIGHT_SHADOW));
+            TextSize size = graphics.textExtent(label);
+            graphics.setForeground(graphics.theme().foreground());
+            graphics.drawText(label, plot.x - size.width() - 7, y - size.height() / 2);
+            graphics.setForeground(graphics.theme().gridLine());
         }
         graphics.setAlpha(255);
-        graphics.setLineStyle(SWT.LINE_SOLID);
-        graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
+        graphics.setLineStyle(LineStyle.SOLID);
+        graphics.setForeground(graphics.theme().foreground());
         graphics.drawLine(plot.x, plot.y, plot.x, plot.y + plot.height);
         graphics.drawLine(plot.x, plot.y + plot.height, plot.x + plot.width, plot.y + plot.height);
-        graphics.drawText(dataset.yAxisTitle(), plot.x, Math.max(0, plot.y - 24), true);
-        Point xTitleSize = graphics.textExtent(dataset.xAxisTitle());
+        graphics.drawText(dataset.yAxisTitle(), plot.x, Math.max(0, plot.y - 24));
+        TextSize xTitleSize = graphics.textExtent(dataset.xAxisTitle());
         graphics.drawText(dataset.xAxisTitle(),
-                plot.x + (plot.width - xTitleSize.x) / 2,
-                plot.y + plot.height + 37, true);
+                plot.x + (plot.width - xTitleSize.width()) / 2,
+                plot.y + plot.height + 37);
 
         if (numericX) {
             drawNumericXLabels(graphics, plot, xRange);
@@ -131,26 +124,26 @@ final class ChartDrawing {
         drawLegend(graphics, plot, dataset.seriesNames());
     }
 
-    private static void drawNumericXLabels(GC graphics, Rectangle plot, Range range) {
+    private static void drawNumericXLabels(ChartGraphics graphics, Rectangle plot, Range range) {
         for (int tick = 0; tick <= TICK_COUNT; tick++) {
             int x = plot.x + plot.width * tick / TICK_COUNT;
             String label = NUMBER_FORMAT.format(
                     range.minimum() + range.span() * tick / TICK_COUNT);
-            Point size = graphics.textExtent(label);
-            graphics.drawText(label, x - size.x / 2, plot.y + plot.height + 7, true);
+            TextSize size = graphics.textExtent(label);
+            graphics.drawText(label, x - size.width() / 2, plot.y + plot.height + 7);
         }
     }
 
     private static void drawCategoryLabels(
-            GC graphics, Rectangle plot, List<String> categories) {
+            ChartGraphics graphics, Rectangle plot, List<String> categories) {
         if (categories.isEmpty()) return;
         int step = Math.max(1, (int) Math.ceil(categories.size() / 10.0));
         for (int index = 0; index < categories.size(); index += step) {
             int x = categoryX(plot, index, categories.size());
             int available = Math.max(28, plot.width / Math.min(categories.size(), 10) - 6);
             String label = elide(graphics, categories.get(index), available);
-            Point size = graphics.textExtent(label);
-            graphics.drawText(label, x - size.x / 2, plot.y + plot.height + 7, true);
+            TextSize size = graphics.textExtent(label);
+            graphics.drawText(label, x - size.width() / 2, plot.y + plot.height + 7);
         }
     }
 
@@ -169,52 +162,18 @@ final class ChartDrawing {
                 - (int) Math.round((value - range.minimum()) / range.span() * plot.height);
     }
 
-    static void drawMessage(GC graphics, Rectangle bounds, String message) {
-        graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
-        Point extent = graphics.textExtent(message);
+    static void drawMessage(ChartGraphics graphics, Rectangle bounds, String message) {
+        graphics.setForeground(graphics.theme().foreground());
+        TextSize extent = graphics.textExtent(message);
         graphics.drawText(message,
-                bounds.x + Math.max(8, (bounds.width - extent.x) / 2),
-                bounds.y + Math.max(8, (bounds.height - extent.y) / 2), true);
+                bounds.x + Math.max(8, (bounds.width - extent.width()) / 2),
+                bounds.y + Math.max(8, (bounds.height - extent.height()) / 2));
     }
 
-    static Color seriesColor(GC graphics, int index) {
-        Color background = graphics.getDevice().getSystemColor(SWT.COLOR_LIST_BACKGROUND);
-        boolean dark = background.getRed() * 299 + background.getGreen() * 587
-                + background.getBlue() * 114 < 128_000;
-        Color[] colors = palette(graphics.getDevice(), dark);
-        return colors[Math.floorMod(index, colors.length)];
-    }
-
-    private static synchronized Color[] palette(Device device, boolean dark) {
-        if (paletteDevice != device || lightColors == null || lightColors[0].isDisposed()) {
-            disposePalette();
-            paletteDevice = device;
-            lightColors = createPalette(device, LIGHT_PALETTE);
-            darkColors = createPalette(device, DARK_PALETTE);
-            if (device instanceof Display display) display.disposeExec(ChartDrawing::disposePalette);
-        }
-        return dark ? darkColors : lightColors;
-    }
-
-    private static Color[] createPalette(Device device, int[][] values) {
-        Color[] result = new Color[values.length];
-        for (int index = 0; index < values.length; index++) {
-            result[index] = new Color(device, values[index][0], values[index][1], values[index][2]);
-        }
-        return result;
-    }
-
-    private static synchronized void disposePalette() {
-        dispose(lightColors);
-        dispose(darkColors);
-        lightColors = null;
-        darkColors = null;
-        paletteDevice = null;
-    }
-
-    private static void dispose(Color[] colors) {
-        if (colors == null) return;
-        for (Color color : colors) if (color != null && !color.isDisposed()) color.dispose();
+    static ChartColor seriesColor(ChartGraphics graphics, int index) {
+        int[][] palette = graphics.theme().isDark() ? DARK_PALETTE : LIGHT_PALETTE;
+        int[] rgb = palette[Math.floorMod(index, palette.length)];
+        return new ChartColor(rgb[0], rgb[1], rgb[2]);
     }
 
     static String formatNumber(double value) {
@@ -226,38 +185,38 @@ final class ChartDrawing {
         return index % step == 0 || index == count - 1;
     }
 
-    static void drawValueLabel(GC graphics, Rectangle plot, int x, int y, double value) {
+    static void drawValueLabel(ChartGraphics graphics, Rectangle plot, int x, int y, double value) {
         String label = formatNumber(value);
-        Point size = graphics.textExtent(label);
-        int labelX = Math.max(plot.x, Math.min(plot.x + plot.width - size.x, x - size.x / 2));
-        int labelY = y - size.y - 5;
-        if (labelY < plot.y) labelY = Math.min(plot.y + plot.height - size.y, y + 5);
-        graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
-        graphics.drawText(label, labelX, labelY, true);
+        TextSize size = graphics.textExtent(label);
+        int labelX = Math.max(plot.x, Math.min(plot.x + plot.width - size.width(), x - size.width() / 2));
+        int labelY = y - size.height() - 5;
+        if (labelY < plot.y) labelY = Math.min(plot.y + plot.height - size.height(), y + 5);
+        graphics.setForeground(graphics.theme().foreground());
+        graphics.drawText(label, labelX, labelY);
     }
 
-    private static void drawLegend(GC graphics, Rectangle plot, List<String> seriesNames) {
+    private static void drawLegend(ChartGraphics graphics, Rectangle plot, List<String> seriesNames) {
         if (seriesNames.size() <= 1 || seriesNames.stream().allMatch(String::isBlank)) return;
         int x = plot.x + plot.width;
         int y = Math.max(2, plot.y - 24);
         for (int index = seriesNames.size() - 1; index >= 0; index--) {
             String name = elide(graphics, seriesNames.get(index), 100);
-            int width = graphics.textExtent(name).x + 19;
+            int width = graphics.textExtent(name).width() + 19;
             x -= width;
             graphics.setBackground(seriesColor(graphics, index));
             graphics.fillRectangle(x, y + 4, 10, 10);
-            graphics.setForeground(graphics.getDevice().getSystemColor(SWT.COLOR_LIST_FOREGROUND));
-            graphics.drawText(name, x + 14, y, true);
+            graphics.setForeground(graphics.theme().foreground());
+            graphics.drawText(name, x + 14, y);
             x -= 10;
             if (x < plot.x) break;
         }
     }
 
-    private static String elide(GC graphics, String text, int maximumWidth) {
-        if (graphics.textExtent(text).x <= maximumWidth) return text;
+    private static String elide(ChartGraphics graphics, String text, int maximumWidth) {
+        if (graphics.textExtent(text).width() <= maximumWidth) return text;
         String ellipsis = "…";
         int end = text.length();
-        while (end > 1 && graphics.textExtent(text.substring(0, end) + ellipsis).x > maximumWidth) {
+        while (end > 1 && graphics.textExtent(text.substring(0, end) + ellipsis).width() > maximumWidth) {
             end--;
         }
         return text.substring(0, end) + ellipsis;

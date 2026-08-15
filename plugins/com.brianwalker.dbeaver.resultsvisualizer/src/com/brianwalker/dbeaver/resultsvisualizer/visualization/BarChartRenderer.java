@@ -4,8 +4,6 @@
  */
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
 /** Categorical vertical bar chart renderer. */
@@ -16,7 +14,7 @@ public final class BarChartRenderer implements ChartRenderer {
     }
 
     @Override
-    public void render(GC graphics, Rectangle bounds, ChartDataset dataset) {
+    public void render(ChartGraphics graphics, Rectangle bounds, ChartDataset dataset) {
         if (dataset.points().isEmpty()) {
             ChartDrawing.drawMessage(graphics, bounds, "No numeric Y-axis values to chart.");
             return;

@@ -4,23 +4,20 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
-import org.eclipse.swt.SWT;
-import org.eclipse.swt.graphics.Color;
-import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Rectangle;
 
 /** Report-style pivot matrix with ordered hierarchies, optional subtotals, and totals. */
 public final class MatrixChartRenderer implements ChartRenderer {
     private static final DecimalFormat FORMAT = new DecimalFormat("#,##0.####");
     private static final int MAX_VISIBLE_CELLS = 2_500;
-    private static final int CELL_HEIGHT = 28;
-    private static final int ROW_WIDTH = 122;
+    static final int CELL_HEIGHT = 28;
+    static final int ROW_WIDTH = 122;
     private final ChartType type;
 
     public MatrixChartRenderer(ChartType type) { this.type = type; }
     @Override public ChartType type() { return type; }
 
-    @Override public void render(GC gc, Rectangle bounds, ChartDataset data) {
+    @Override public void render(ChartGraphics gc, Rectangle bounds, ChartDataset data) {
         List<List<String>> rows = data.rowTuples();
         List<List<String>> columns = data.columnTuples();
         if (data.points().isEmpty()) {
@@ -141,7 +138,7 @@ public final class MatrixChartRenderer implements ChartRenderer {
         return result;
     }
 
-    private static void drawSubtotal(GC gc, ChartDataset data, List<List<String>> columns,
+    private static void drawSubtotal(ChartGraphics gc, ChartDataset data, List<List<String>> columns,
             DisplayRow row, int x0, int y, int rowLevels, int rowHeaderWidth,
             int cellWidth, double maximum, boolean rowTotals) {
         String label = valueAt(row.values(), row.subtotalLevel()) + " subtotal";
@@ -186,48 +183,44 @@ public final class MatrixChartRenderer implements ChartRenderer {
         return index < values.size() ? values.get(index) : "";
     }
 
-    private static void drawCell(GC gc, int x, int y, int width, int height,
+    private static void drawCell(ChartGraphics gc, int x, int y, int width, int height,
             String text, CellStyle style, boolean numeric, double value, double maximum) {
-        var device = gc.getDevice();
+        ChartTheme theme = gc.theme();
         boolean heat = style == CellStyle.HEAT && maximum > 0;
-        Color temporary = null;
+        ChartColor background;
         if (heat) {
             double ratio = Math.max(0, Math.min(1, value / maximum));
-            temporary = new Color(device,
+            background = new ChartColor(
                     (int) Math.round(196 - ratio * 120),
                     (int) Math.round(216 - ratio * 96),
                     (int) Math.round(231 - ratio * 63));
-            gc.setBackground(temporary);
         } else if (style == CellStyle.HEADER) {
-            gc.setBackground(ChartDrawing.seriesColor(gc, 0));
+            background = ChartDrawing.seriesColor(gc, 0);
         } else if (style == CellStyle.TOTAL || style == CellStyle.SUBTOTAL) {
-            gc.setBackground(ChartDrawing.seriesColor(gc, style == CellStyle.TOTAL ? 7 : 9));
+            background = ChartDrawing.seriesColor(gc, style == CellStyle.TOTAL ? 7 : 9);
         } else {
-            gc.setBackground(device.getSystemColor(SWT.COLOR_LIST_BACKGROUND));
+            background = theme.background();
         }
+        gc.setBackground(background);
         gc.fillRectangle(x, y, width, height);
         if (style == CellStyle.ALTERNATE) {
             gc.setAlpha(18);
-            gc.setBackground(device.getSystemColor(SWT.COLOR_LIST_SELECTION));
+            gc.setBackground(theme.selection());
             gc.fillRectangle(x, y, width, height);
             gc.setAlpha(255);
         }
-        gc.setForeground(device.getSystemColor(SWT.COLOR_WIDGET_NORMAL_SHADOW));
+        gc.setForeground(theme.normalShadow());
         gc.drawLine(x, y + height - 1, x + width, y + height - 1);
         String shown = abbreviate(text, Math.max(4, width / 8));
         if (heat) {
-            gc.setForeground(device.getSystemColor(SWT.COLOR_BLACK));
+            gc.setForeground(theme.black());
         } else if (style == CellStyle.HEADER || style == CellStyle.TOTAL || style == CellStyle.SUBTOTAL) {
-            Color background = gc.getBackground();
-            int luminance = background.getRed() * 299 + background.getGreen() * 587
-                    + background.getBlue() * 114;
-            gc.setForeground(device.getSystemColor(luminance < 125_000 ? SWT.COLOR_WHITE : SWT.COLOR_BLACK));
+            gc.setForeground(background.luminance() < 125_000 ? theme.white() : theme.black());
         } else {
-            gc.setForeground(device.getSystemColor(SWT.COLOR_LIST_FOREGROUND));
+            gc.setForeground(theme.foreground());
         }
-        int textX = numeric ? Math.max(x + 6, x + width - gc.textExtent(shown).x - 7) : x + 7;
-        gc.drawText(shown, textX, y + Math.max(1, (height - gc.textExtent(shown).y) / 2), true);
-        if (temporary != null) temporary.dispose();
+        int textX = numeric ? Math.max(x + 6, x + width - gc.textExtent(shown).width() - 7) : x + 7;
+        gc.drawText(shown, textX, y + Math.max(1, (height - gc.textExtent(shown).height()) / 2));
     }
 
     private static String abbreviate(String text, int maximum) {

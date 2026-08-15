@@ -4,6 +4,21 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
 
 ## Unreleased
 
+- Export ▾ now offers PNG, JPEG, vector SVG, and PDF export in addition to Copy
+  Image, driven by a new shared `ChartGraphics` rendering abstraction so every
+  format renders through the exact same chart/matrix layout code as the
+  on-screen view (no duplicated per-format drawing logic, no visual drift
+  between formats). SVG is a real vector document (not a rasterized
+  screenshot); PDF embeds a high-resolution JPEG raster of the chart on a
+  single page — a documented raster fallback rather than true vector PDF
+  content, since generating vector PDF content streams would require a second
+  full reimplementation of every renderer with no corresponding user-visible
+  benefit for this release. Neither format required adding any new external
+  dependency (SVG is hand-built XML; PDF is a minimal hand-written PDF/JPEG
+  wrapper). Matrix/Pivot Table and Heatmap export (PNG, JPEG, SVG, and PDF)
+  now always captures the entire matrix content, not just the currently
+  visible, scrolled viewport — previously PNG/Copy Image export of a matrix
+  larger than the on-screen area silently produced a cropped image.
 - Per-result visualization sessions: chart/matrix/slicer/sort/calculated-field
   state is now scoped to a stable result identity (not the editor title) and
   is retained (bounded, LRU-capped) across panel switches; the identity is
@@ -45,8 +60,9 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
   vs. base-10) are not consistent across dialects — verify multi-argument
   `LOG` formulas used inside the Source Query against the target database.
 - Consolidated the Preset actions (Save/Load/Delete) and the Export actions
-  (Save PNG/Copy PNG) behind single "Presets ▾" and "Export ▾" drop-down
-  buttons respectively, reducing configuration-panel button clutter.
+  (now Save PNG/Save JPEG/Save SVG/Save PDF/Copy Image) behind single
+  "Presets ▾" and "Export ▾" drop-down buttons respectively, reducing
+  configuration-panel button clutter.
 - The verbose inline formula guide in the calculated-field dialog was
   replaced with a one-line hint plus a "Formula Help…" button that opens the
   full function/operator/example reference (updated to document the new
