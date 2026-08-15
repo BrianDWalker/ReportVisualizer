@@ -35,6 +35,8 @@ import org.jkiss.dbeaver.model.exec.DBCResultSet;
 import org.jkiss.dbeaver.model.exec.DBCSession;
 import org.jkiss.dbeaver.model.exec.DBCStatement;
 import org.jkiss.dbeaver.model.exec.DBCStatementType;
+import org.jkiss.dbeaver.model.sql.SQLDialect;
+import org.jkiss.dbeaver.model.sql.SQLUtils;
 import org.jkiss.dbeaver.model.runtime.AbstractJob;
 import org.jkiss.dbeaver.model.runtime.DBRProgressMonitor;
 import org.jkiss.dbeaver.model.data.DBDAttributeBinding;
@@ -109,6 +111,16 @@ final class DBeaverResultSetService
         if (!isUsable(controller) || controller.getModel().getStatistics() == null) return "";
         return java.util.Objects.requireNonNullElse(
                 controller.getModel().getStatistics().getQueryText(), "");
+    }
+
+    @Override
+    public DBeaverSqlDialectService.QuoteStyle activeIdentifierQuoteStyle() {
+        IResultSetController controller = attachedController;
+        if (!isUsable(controller)) return DBeaverSqlDialectService.defaultQuoteStyle();
+        DBCExecutionContext context = controller.getExecutionContext();
+        if (context == null || context.getDataSource() == null) return DBeaverSqlDialectService.defaultQuoteStyle();
+        SQLDialect dialect = SQLUtils.getDialectFromDataSource(context.getDataSource());
+        return DBeaverSqlDialectService.quoteStyleFromDialect(dialect);
     }
 
     @Override
@@ -326,7 +338,17 @@ final class DBeaverResultSetService
     @Override public void onModelPrepared() { schedule(true); }
     @Override public void partActivated(IWorkbenchPartReference partRef) { schedule(false); }
     @Override public void partBroughtToTop(IWorkbenchPartReference partRef) { schedule(false); }
-    @Override public void partClosed(IWorkbenchPartReference partRef) { schedule(false); }
+    @Override public void partClosed(IWorkbenchPartReference partRef) {
+        IWorkbenchPart part = partRef == null ? null : partRef.getPart(false);
+        if (part == null) return;
+        IResultSetController controller = ResultSetHandlerMain.getActiveResultSet(part);
+        if (controller == attachedController || controller == groupingController) {
+            detachController();
+            if (source == ResultSource.GROUPING) groupingController = null;
+            updateConsumer.accept(ResultSetUpdate.noActiveResult());
+        }
+        schedule(false);
+    }
     @Override public void partDeactivated(IWorkbenchPartReference partRef) { }
     @Override public void partHidden(IWorkbenchPartReference partRef) { }
     @Override public void partInputChanged(IWorkbenchPartReference partRef) { schedule(true); }

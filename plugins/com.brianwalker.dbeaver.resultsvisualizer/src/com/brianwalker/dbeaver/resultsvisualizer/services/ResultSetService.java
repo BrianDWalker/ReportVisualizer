@@ -25,5 +25,13 @@ public interface ResultSetService extends AutoCloseable {
         return "";
     }
 
+    /**
+     * The identifier quoting style used by the active DBeaver datasource when it can be
+     * determined. Defaults to ANSI double quotes when no datasource metadata is available.
+     */
+    default DBeaverSqlDialectService.QuoteStyle activeIdentifierQuoteStyle() {
+        return DBeaverSqlDialectService.defaultQuoteStyle();
+    }
+
     @Override void close();
 }

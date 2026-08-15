@@ -21,8 +21,20 @@ All notable product releases are documented here. Eclipse/Tycho build qualifiers
   floating "latest" update site, but CI and releases now resolve and record
   the exact DBeaver core version actually validated against, instead of
   silently building against an untracked moving target.
-- Known limitation: identifier quoting remains a fixed ANSI double-quote and
-  is not yet derived from the active DBeaver `SQLDialect`.
+- Dialect-aware identifier quoting: quote characters are now derived directly
+  from the active datasource's `SQLDialect.getIdentifierQuoteStrings()`,
+  supporting asymmetric quote pairs (e.g. SQL Server `[`/`]` brackets) as well
+  as symmetric ones (ANSI `"`, MySQL `` ` ``), replacing a prior
+  detection heuristic that silently always fell back to ANSI quoting
+  regardless of the active dialect. Falls back to ANSI double quotes only when
+  no dialect/datasource metadata is available.
+- Added an automated large-row regression test (10k/50k/100k synthetic rows)
+  covering chart dataset construction; see "Large-result and runtime
+  validation" in `docs/architecture.md` for what is and is not covered by
+  automated testing versus manual live-DBeaver validation.
+- Known limitation: there remains no dedicated per-controller disposal hook
+  in the DBeaver result-set API surface used here; the bounded LRU session
+  cache plus explicit view-level cleanup is the deliberate mitigation.
 
 ## 1.0.0 — 2026-08-14
 

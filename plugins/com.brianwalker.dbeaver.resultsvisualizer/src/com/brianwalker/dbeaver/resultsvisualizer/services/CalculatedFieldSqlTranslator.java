@@ -53,6 +53,6 @@ public final class CalculatedFieldSqlTranslator {
 
     private static String key(String value) { return value.trim().toLowerCase(Locale.ROOT); }
     private static String quote(String identifier) {
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return DBeaverSqlDialectService.quoteIdentifier(identifier);
     }
 }

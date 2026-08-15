@@ -2,18 +2,30 @@
 package com.brianwalker.dbeaver.resultsvisualizer.services;
 
 import java.util.Locale;
+import org.jkiss.dbeaver.model.DBPDataSource;
+import org.jkiss.dbeaver.model.sql.SQLDialect;
+import org.jkiss.dbeaver.model.sql.SQLUtils;
 
 /**
  * Centralizes dialect-sensitive SQL quoting and source-query rewrite strategy decisions.
  *
- * <p><b>Known limitation:</b> identifier quoting is currently a fixed ANSI double-quote
- * (the SQL-92 standard, and what PostgreSQL, Oracle, DB2, SQLite, and SQL Server with
- * QUOTED_IDENTIFIER ON all accept). It is not yet derived from the active DBeaver
- * datasource's {@code SQLDialect}, so a MySQL/MariaDB connection running in
- * non-ANSI-quotes mode (backtick identifiers) is not correctly supported. Deriving this
- * from the live execution context requires threading a dialect/quoting capability from
- * {@code ResultSetService} down through {@link AggregateQueryBuilder}, which is left as
- * follow-up work rather than a broad signature change here.</p>
+ * <p>Identifier quoting is derived directly from
+ * {@link SQLDialect#getIdentifierQuoteStrings()} of the active DBeaver datasource when it
+ * can be inferred from the current result-set context; if no live datasource information
+ * is available, the service falls back to the ANSI double-quote default (the SQL-92
+ * standard, and what PostgreSQL, Oracle, DB2, SQLite, and SQL Server with
+ * QUOTED_IDENTIFIER ON accept). Reading the dialect's own declared quote-string pairs
+ * (rather than round-tripping a sample identifier through
+ * {@link SQLDialect#getQuotedIdentifier}) is required for correctness: DBeaver's
+ * {@code AbstractSQLDialect.getQuotedIdentifier} only quotes a sample identifier when
+ * {@code mustBeQuoted}/{@code forceQuotes} says quoting is actually needed, so an
+ * inoffensive sample like {@code "x"} never reveals the dialect's real quote characters.
+ * {@link SQLDialect#getIdentifierQuoteStrings()} also correctly exposes dialects with
+ * asymmetric open/close pairs (for example SQL Server's {@code [}/{@code ]} bracket
+ * quoting, see {@code SQLServerDialectBase.SQLSERVER_QUOTE_STRINGS} in the DBeaver
+ * source), which a single-character quote assumption cannot represent. This lets the
+ * plugin respect MySQL/MariaDB backtick and SQL Server bracket quoting without requiring
+ * a broad rewrite of the aggregate builder API or a hardcoded per-vendor switch.</p>
  *
  * <p>The direct-vs-derived rewrite decision below deliberately does not rely on a plain
  * top-level regex split: a naive "first FROM after SELECT" match can be fooled by a
@@ -29,6 +41,21 @@ public final class DBeaverSqlDialectService {
         DERIVED_TABLE_FALLBACK
     }
 
+    /** An open/close identifier-quote pair, e.g. {@code ("\"", "\"")} or {@code ("[", "]")}. */
+    public record QuoteStyle(String open, String close) {
+        public QuoteStyle {
+            open = normalizePart(open);
+            close = normalizePart(close);
+        }
+
+        private static String normalizePart(String part) {
+            return part == null || part.isEmpty() ? "\"" : part;
+        }
+    }
+
+    private static final QuoteStyle DEFAULT_QUOTE_STYLE = new QuoteStyle("\"", "\"");
+    private static final ThreadLocal<QuoteStyle> ACTIVE_QUOTE =
+            ThreadLocal.withInitial(() -> DEFAULT_QUOTE_STYLE);
     private static final String[] DISQUALIFYING_KEYWORDS = {
             "UNION", "INTERSECT", "EXCEPT", "JOIN", "WHERE", "GROUP BY", "HAVING",
             "ORDER BY", "LIMIT", "FETCH", "TOP", "WITH"
@@ -37,10 +64,71 @@ public final class DBeaverSqlDialectService {
     private DBeaverSqlDialectService() {
     }
 
+    public static String defaultQuoteString() {
+        return DEFAULT_QUOTE_STYLE.open();
+    }
+
+    public static QuoteStyle defaultQuoteStyle() {
+        return DEFAULT_QUOTE_STYLE;
+    }
+
+    /** Convenience for a symmetric single-character quote style (e.g. {@code "\""} or {@code "`"}). */
+    public static void installQuoteString(String quoteString) {
+        installQuoteStyle(new QuoteStyle(quoteString, quoteString));
+    }
+
+    public static void installQuoteStyle(QuoteStyle style) {
+        ACTIVE_QUOTE.set(style == null ? DEFAULT_QUOTE_STYLE : style);
+    }
+
+    public static void clearQuoteString() {
+        ACTIVE_QUOTE.remove();
+    }
+
     public static String quoteIdentifier(String identifier) {
-        return identifier == null || identifier.isBlank()
-                ? "\"\""
-                : "\"" + identifier.replace("\"", "\"\"") + "\"";
+        return quoteIdentifier(identifier, ACTIVE_QUOTE.get());
+    }
+
+    public static String quoteIdentifier(String identifier, DBPDataSource dataSource) {
+        SQLDialect dialect = dataSource == null ? null : SQLUtils.getDialectFromDataSource(dataSource);
+        return quoteIdentifier(identifier, quoteStyleFromDialect(dialect));
+    }
+
+    /**
+     * Derives the active {@link QuoteStyle} from a live DBeaver {@link SQLDialect}, or the
+     * ANSI default when {@code dialect} is {@code null} or does not declare a usable quote
+     * pair.
+     */
+    public static QuoteStyle quoteStyleFromDialect(SQLDialect dialect) {
+        return dialect == null ? DEFAULT_QUOTE_STYLE
+                : quoteStyleFromQuoteStrings(dialect.getIdentifierQuoteStrings());
+    }
+
+    /**
+     * Package-visible so it can be unit-tested with literal {@code String[][]} pairs
+     * mirroring real dialects (e.g. MySQL's {@code {{"`","`"},{"\"","\""}}} or SQL
+     * Server's {@code {{"[","]"},{"\"","\""}}}) without needing a full live
+     * {@link SQLDialect} implementation in a unit test.
+     */
+    static QuoteStyle quoteStyleFromQuoteStrings(String[][] quoteStrings) {
+        if (quoteStrings == null || quoteStrings.length == 0) return DEFAULT_QUOTE_STYLE;
+        String[] primary = quoteStrings[0];
+        if (primary == null || primary.length < 2
+                || primary[0] == null || primary[0].isEmpty()
+                || primary[1] == null || primary[1].isEmpty()) {
+            return DEFAULT_QUOTE_STYLE;
+        }
+        return new QuoteStyle(primary[0], primary[1]);
+    }
+
+    private static String quoteIdentifier(String identifier, QuoteStyle style) {
+        QuoteStyle normalized = style == null ? DEFAULT_QUOTE_STYLE : style;
+        if (identifier == null || identifier.isBlank()) return normalized.open() + normalized.close();
+        // Doubling the closing quote character handles both symmetric quoting (ANSI "..."
+        // and MySQL `...`, where open == close) and asymmetric bracket quoting (SQL Server
+        // [...]), matching how each convention escapes an embedded quote character.
+        String escaped = identifier.replace(normalized.close(), normalized.close() + normalized.close());
+        return normalized.open() + escaped + normalized.close();
     }
 
     public static QueryStrategy strategyFor(String sourceSql) {

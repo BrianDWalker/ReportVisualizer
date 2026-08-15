@@ -14,6 +14,7 @@ import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerPreset;
 import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerPresetStore;
 import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerSession;
 import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerSessionManager;
+import com.brianwalker.dbeaver.resultsvisualizer.services.DBeaverSqlDialectService;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetService;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetServices;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSource;
@@ -447,7 +448,16 @@ public final class ResultsVisualizerView extends ViewPart {
         if (content == null || content.isDisposed()) return;
         switch (update.status()) {
             case LOADING -> showMessage("Reading the active result set...");
-            case NO_ACTIVE_RESULT, ERROR -> {
+            case NO_ACTIVE_RESULT -> {
+                pendingAggregateQuery = null;
+                if (!activeSessionIdentity.isBlank()) {
+                    visualizerSessionManager.remove(activeSessionIdentity);
+                    activeSessionIdentity = "";
+                }
+                DBeaverSqlDialectService.clearQuoteString();
+                showMessage(update.message());
+            }
+            case ERROR -> {
                 pendingAggregateQuery = null;
                 showMessage(update.message());
             }
@@ -464,6 +474,14 @@ public final class ResultsVisualizerView extends ViewPart {
         setVisible(configurationScroller, false);
         if (addCalculatedFieldButton != null) addCalculatedFieldButton.setEnabled(false);
         content.layout(true, true);
+    }
+
+    private void updateQuoteContext() {
+        if (resultSetService == null) {
+            DBeaverSqlDialectService.clearQuoteString();
+            return;
+        }
+        DBeaverSqlDialectService.installQuoteStyle(resultSetService.activeIdentifierQuoteStyle());
     }
 
     private void showBaseSnapshot(ResultSetSnapshot newBaseSnapshot) {
@@ -489,10 +507,19 @@ public final class ResultsVisualizerView extends ViewPart {
     private void switchSessionIfNeeded(String newIdentity) {
         String normalizedNew = visualizerSessionManager.sessionIdFor(newIdentity);
         String normalizedOld = visualizerSessionManager.sessionIdFor(activeSessionIdentity);
-        if (normalizedNew.equals(normalizedOld) && baseSnapshot != null) return;
-        if (baseSnapshot != null) persistCurrentSessionState(activeSessionIdentity);
+        if (normalizedNew.equals(normalizedOld) && baseSnapshot != null) {
+            updateQuoteContext();
+            return;
+        }
+        if (baseSnapshot != null && !activeSessionIdentity.isBlank()) {
+            persistCurrentSessionState(activeSessionIdentity);
+        }
+        if (!activeSessionIdentity.isBlank() && !normalizedNew.equals(normalizedOld)) {
+            visualizerSessionManager.remove(activeSessionIdentity);
+        }
         activeSessionIdentity = newIdentity;
         restoreSessionState(newIdentity);
+        updateQuoteContext();
     }
 
     private void persistCurrentSessionState(String identity) {
@@ -1170,6 +1197,7 @@ public final class ResultsVisualizerView extends ViewPart {
     public void dispose() {
         if (resultSetService != null) resultSetService.close();
         visualizerSessionManager.clear();
+        DBeaverSqlDialectService.clearQuoteString();
         super.dispose();
     }
 }

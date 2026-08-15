@@ -180,8 +180,27 @@ without changing the immutable-snapshot rendering model:
   string literals to find a genuinely top-level `FROM`/disqualifying keyword,
   rather than relying on a plain regex split, so CTEs, joins, set operations,
   and structurally ambiguous queries fall back safely. Identifier quoting is
-  currently a fixed ANSI double-quote (see the class-level Javadoc for the
-  known MySQL/MariaDB backtick-mode limitation).
+  derived from `SQLDialect.getIdentifierQuoteStrings()` on the active
+  datasource's dialect — the same declarative quote-pair table DBeaver's own
+  dialect implementations expose — via `DBeaverSqlDialectService.QuoteStyle`,
+  which stores an independent open/close pair rather than assuming a single
+  symmetric quote character. This correctly supports asymmetric dialects (SQL
+  Server's `[` / `]` brackets) as well as symmetric ones (ANSI `"`, MySQL
+  `` ` ``), and falls back to ANSI double quotes only when no dialect/datasource
+  is available. Embedded quote characters are escaped by doubling the closing
+  quote character, which is correct for both symmetric quoting and T-SQL's own
+  bracket-escaping convention (`]` → `]]`).
+  - Earlier iterations of this fix attempted to *detect* the active dialect's
+    quote character by calling `dialect.getQuotedIdentifier("sample", false,
+    false)` and inspecting whether the result changed length. This was a
+    functional no-op: DBeaver's `AbstractSQLDialect.getQuotedIdentifier` only
+    quotes when `mustBeQuoted(...)` or `forceQuotes` is true, and a benign
+    lowercase non-keyword sample is never considered quote-worthy for any
+    dialect, so the detection always silently produced the ANSI fallback
+    regardless of the real active dialect. The current implementation reads
+    `getIdentifierQuoteStrings()` directly instead of round-tripping through a
+    quoting-necessity heuristic, which avoids this failure mode entirely.
+
 - **Saved visualization presets** (`VisualizerPreset`, `VisualizerPresetStore`):
   a named chart/matrix layout is persisted via Eclipse `InstanceScope`
   preferences, keyed by a source signature (result source name plus column
@@ -199,3 +218,50 @@ and record the exact DBeaver core version each build actually validated
 against (via the `dbeaver-core-version` artifact and, for tagged releases,
 the release notes), so historical builds remain traceable to a specific
 DBeaver version even though the update site itself floats.
+
+## Large-result and runtime validation
+
+- **Automated large-row validation**: `AggregateQueryBuilderTest#buildsChartDatasetsWithoutExceptionsAtLargeRowCounts`
+  builds synthetic `ResultSetSnapshot` data at 10,000, 50,000, and 100,000 rows
+  and asserts `ChartDataBuilder.build` completes without throwing and produces
+  a non-empty, correctly-shaped dataset at each size. This is a real,
+  automated, unit-level regression guard against pathological slowdowns or
+  exceptions at scale in the in-memory charting path.
+- **Dialect-quoting validation**: `DBeaverSqlDialectServiceTest` exercises
+  `QuoteStyle` derivation and escaping against literal quote-string tables
+  copied from real DBeaver dialect source (`MySQLDialect.MYSQL_QUOTE_STRINGS`,
+  `SQLServerDialectBase.SQLSERVER_QUOTE_STRINGS`), covering symmetric and
+  asymmetric quote pairs, embedded-quote escaping, and fallback behavior when
+  no dialect/quote-strings table is available, plus end-to-end direct-rewrite
+  and derived-table SQL generation with a non-default quote style installed.
+- **No live DBeaver runtime validation has been performed in this development
+  environment.** There is no DBeaver desktop installation or live datasource
+  connection available here, so the large-row and quoting fixes above have
+  only been exercised through synthetic in-memory data and unit tests — not
+  against an actual running DBeaver instance, a real JDBC datasource, or a
+  live SQL Server/MySQL/PostgreSQL connection. Anyone installing this update
+  site into a real DBeaver instance should still perform the following manual
+  checks before relying on this build broadly:
+  1. Connect to a SQL Server (or other bracket-quoting) datasource, open a
+     result set with a column name that needs quoting (e.g. containing a
+     space or a reserved word), enable an aggregation/Source Query grouping
+     on that column, and confirm the generated SQL preview uses `[` / `]`
+     brackets rather than ANSI double quotes.
+  2. Repeat against a MySQL/MariaDB datasource and confirm backtick quoting.
+  3. Run an aggregate/grouping query against a real result set with roughly
+     10k–100k rows (a real backing table, not synthetic data) and confirm the
+     visualizer builds its chart/matrix without noticeable UI hang or memory
+     pressure, respecting the connection's configured result-set row limit.
+  4. Open several different result panels/Grouping panels in the same
+     DBeaver session, switch between them repeatedly, and confirm each
+     retains its own visualization state (this exercises the LRU session
+     cache under real controller lifecycle events rather than only the unit
+     test's synthetic session identities).
+  5. Close a result tab/editor and confirm the corresponding session is
+     reclaimed (either immediately via `partClosed`, or eventually via LRU
+     eviction) without a memory leak growing unbounded across many
+     open/close cycles — there is no dedicated per-controller disposal
+     callback in the DBeaver API surface used here, so this is a bounded-cache
+     mitigation rather than a deterministic guarantee, and is worth confirming
+     under real, sustained use.
+

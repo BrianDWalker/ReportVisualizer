@@ -9,12 +9,14 @@ import com.brianwalker.dbeaver.resultsvisualizer.model.Nullability;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultColumn;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetSnapshot;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.Aggregation;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDataBuilder;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartType;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerDefinition;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationConfiguration;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -32,6 +34,16 @@ public class AggregateQueryBuilderTest {
         assertTrue(sql.contains("'O''Brien'"));
         assertTrue(sql.contains("FROM sales"));
         assertTrue(!sql.contains("rv_source"));
+    }
+
+    @Test public void usesConfiguredQuoteCharacterWhenAvailable() {
+        DBeaverSqlDialectService.installQuoteString("`");
+        try {
+            assertTrue(DBeaverSqlDialectService.quoteIdentifier("region").equals("`region`"));
+            assertTrue(DBeaverSqlDialectService.quoteIdentifier("O`Brien").equals("`O``Brien`"));
+        } finally {
+            DBeaverSqlDialectService.clearQuoteString();
+        }
     }
 
     @Test public void fallsBackToDerivedQueryForComplexSourceSql() {
@@ -54,6 +66,16 @@ public class AggregateQueryBuilderTest {
         assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DIRECT_REWRITE);
         assertTrue(query.sql().contains("FROM sales"));
         assertTrue(!query.sql().contains("rv_source"));
+    }
+
+    @Test public void buildsChartDatasetsWithoutExceptionsAtLargeRowCounts() {
+        int[] sizes = {10_000, 50_000, 100_000};
+        for (int size : sizes) {
+            ResultSetSnapshot large = largeSnapshot(size);
+            VisualizationConfiguration configuration = new VisualizationConfiguration(
+                    ChartType.BAR, 0, 1, VisualizationConfiguration.UNASSIGNED, Aggregation.SUM);
+            assertTrue(ChartDataBuilder.build(large, configuration).points().size() > 0);
+        }
     }
 
     @Test public void fallsBackWhenFromClauseItselfIsASubqueryOrJoinExpression() {
@@ -167,6 +189,24 @@ public class AggregateQueryBuilderTest {
                 column(1, "revenue", NormalizedDataType.DECIMAL),
                 column(2, "region", NormalizedDataType.STRING)), List.of(), 0, false, Instant.now());
     }
+
+    private static ResultSetSnapshot largeSnapshot(int rowCount) {
+        List<ResultColumn> columns = List.of(
+                column(0, "region", NormalizedDataType.STRING),
+                column(1, "revenue", NormalizedDataType.DECIMAL));
+        List<com.brianwalker.dbeaver.resultsvisualizer.model.ResultRow> rows = new ArrayList<>();
+        for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+            String region = switch (rowIndex % 4) {
+                case 0 -> "North";
+                case 1 -> "South";
+                case 2 -> "East";
+                default -> "West";
+            };
+            rows.add(new com.brianwalker.dbeaver.resultsvisualizer.model.ResultRow(rowIndex, List.of(region, (double) (rowIndex % 1000 + 1))));
+        }
+        return new ResultSetSnapshot("large_sales", columns, rows, rowCount, false, Instant.now());
+    }
+
     private static ResultColumn column(int index, String name, NormalizedDataType type) {
         return new ResultColumn(index, name, name, Types.OTHER, type.name(), type, Nullability.NULLABLE);
     }

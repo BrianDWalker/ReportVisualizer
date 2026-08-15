@@ -101,14 +101,27 @@ Release downloads and checksums are available on the
 
 ## Known limitations
 
-- Identifier quoting used by the SQL rewrite/aggregate builder is a fixed
-  ANSI double-quote and is not yet derived from the active DBeaver
-  datasource's `SQLDialect`, so non-ANSI-quoting dialects (e.g. MySQL/MariaDB
-  in backtick mode) are not fully supported yet
+- Identifier quoting is derived directly from the active datasource's
+  `SQLDialect.getIdentifierQuoteStrings()` (the same DBeaver API the platform
+  itself uses to decide quote characters), so it correctly follows the active
+  dialect's declared quote pair, including asymmetric styles such as SQL
+  Server's `[` / `]` brackets, not just symmetric single-character styles like
+  ANSI `"` or MySQL `` ` ``. When no datasource/dialect metadata is available
+  the SQL builder falls back to ANSI double-quote safety instead of guessing a
+  dialect
 - Export is limited to PNG (file and clipboard); SVG/PDF export is not
   implemented
-- There is no dedicated per-controller disposal hook beyond the bounded
-  session cache and view-level cleanup
+- There is no dedicated per-controller disposal hook exposed by DBeaver's
+  `IResultSetListener`/`IResultSetController` API surface; the plugin relies on
+  the bounded LRU session cache plus explicit view-level cleanup
+  (session-switch invalidation and `dispose()`-time clearing) as a deliberate,
+  documented substitute rather than a true controller-lifecycle callback
+- Large-result behavior (10k/50k/100k row aggregation and charting) is covered
+  by automated synthetic-data tests, but no live DBeaver runtime is available
+  in this development environment, so genuine live-DBeaver interactive/runtime
+  validation against a real datasource has not been performed here. See the
+  manual validation checklist in `docs/architecture.md` for the steps a
+  maintainer with a live DBeaver install should still run before broad release
 - DBeaver publishes no version-pinned public p2 repository for the CE
   product, so this project always builds against the floating "latest"
   update site; each build/release records the exact DBeaver core version

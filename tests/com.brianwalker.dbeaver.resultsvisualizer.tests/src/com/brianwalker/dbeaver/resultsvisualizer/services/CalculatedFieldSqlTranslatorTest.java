@@ -29,6 +29,18 @@ public class CalculatedFieldSqlTranslatorTest {
                 translator.translateExpression("MIN([amount], 1000) + MAX([amount], 0)"));
     }
 
+    @Test public void usesConfiguredIdentifierQuoteStyleAcrossCalculatedFieldSql() {
+        DBeaverSqlDialectService.installQuoteString("`");
+        try {
+            CalculatedFieldSqlTranslator translator = new CalculatedFieldSqlTranslator(
+                    List.of(column(0, "order id"), column(1, "select")),
+                    List.of(new CalculatedFieldDefinition("Quoted", "[order id] + [select]")));
+            assertEquals("(`order id` + `select`)", translator.expressionFor("Quoted"));
+        } finally {
+            DBeaverSqlDialectService.clearQuoteString();
+        }
+    }
+
     private static ResultColumn column(int index, String name) {
         return new ResultColumn(index, name, name, 3, "NUMBER",
                 NormalizedDataType.NUMBER, Nullability.NULLABLE);
