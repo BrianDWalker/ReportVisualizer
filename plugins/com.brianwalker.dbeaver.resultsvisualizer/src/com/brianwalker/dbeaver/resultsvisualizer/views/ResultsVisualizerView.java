@@ -10,6 +10,8 @@ import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFiel
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultColumn;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetSnapshot;
 import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetUpdate;
+import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerSession;
+import com.brianwalker.dbeaver.resultsvisualizer.model.VisualizerSessionManager;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetService;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetServices;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSource;
@@ -59,6 +61,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private final ChartRendererRegistry rendererRegistry = ChartRendererRegistry.defaults();
     private final List<ChartType> chartTypes = rendererRegistry.availableTypes();
     private final CalculatedFieldService calculatedFieldService = new CalculatedFieldService();
+    private final VisualizerSessionManager visualizerSessionManager = new VisualizerSessionManager();
     private final List<CalculatedFieldDefinition> calculatedFields = new ArrayList<>();
     private final List<SlicerDefinition> slicers = new ArrayList<>();
     private final List<CustomSqlDimension> customSqlDimensions = new ArrayList<>();
@@ -434,6 +437,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private void showSnapshot(ResultSetSnapshot newSnapshot) {
         ResultSetSnapshot previous = snapshot;
         snapshot = newSnapshot;
+        saveSessionState(newSnapshot);
         slicers.removeIf(slicer -> newSnapshot.columns().stream().noneMatch(column ->
                 column.displayName().equalsIgnoreCase(slicer.fieldName())));
         updateSlicerLabel();
@@ -441,6 +445,10 @@ public final class ResultsVisualizerView extends ViewPart {
         if (newSnapshot.columns().isEmpty()) {
             showMessage("The active result set has no columns.");
             return;
+        }
+        VisualizerSession session = visualizerSessionManager.get(newSnapshot.sourceName()).orElse(null);
+        if (session != null && session.configuration() != null && !configurationInitialized) {
+            configuration = session.configuration();
         }
         if (applyPendingAggregateResult(newSnapshot)) {
             configurationInitialized = true;
@@ -467,6 +475,20 @@ public final class ResultsVisualizerView extends ViewPart {
         setVisible(configurationScroller, true);
         updateChart();
         content.layout(true, true);
+    }
+
+    private void saveSessionState(ResultSetSnapshot newSnapshot) {
+        if (newSnapshot == null) return;
+        String identity = visualizerSessionManager.sessionIdFor(newSnapshot.sourceName());
+        visualizerSessionManager.update(identity, session -> session
+                .withBaseSnapshot(newSnapshot)
+                .withConfiguration(configuration)
+                .withMatrixOptions(matrixOptions)
+                .withAggregateQuery(pendingAggregateQuery)
+                .withCalculatedFields(new ArrayList<>(calculatedFields))
+                .withSlicers(new ArrayList<>(slicers))
+                .withSortRules(new ArrayList<>(sortRules))
+                .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions)));
     }
 
     private void openCalculatedFieldManager() {
