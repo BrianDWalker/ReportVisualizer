@@ -1,0 +1,8 @@
+target/
+.metadata/
+.DS_Store
+*.log
+*.zip
+work/
+_site/
+_release/

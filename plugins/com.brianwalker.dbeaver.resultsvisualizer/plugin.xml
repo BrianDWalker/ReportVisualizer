@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+   <extension point="org.eclipse.ui.views">
+      <category
+            id="com.brianwalker.dbeaver.resultsvisualizer.category"
+            name="Results Visualizer">
+      </category>
+      <view
+            category="com.brianwalker.dbeaver.resultsvisualizer.category"
+            class="com.brianwalker.dbeaver.resultsvisualizer.views.ResultsVisualizerView"
+            icon="icons/results-visualizer.svg"
+            id="com.brianwalker.dbeaver.resultsvisualizer.views.resultsVisualizer"
+            name="Results Visualizer"
+            restorable="true">
+      </view>
+   </extension>
+
+   <extension point="org.eclipse.ui.commands">
+      <command
+            categoryId="com.brianwalker.dbeaver.resultsvisualizer.commands.category"
+            description="Open the Results Visualizer view"
+            id="com.brianwalker.dbeaver.resultsvisualizer.commands.open"
+            name="Visualize Results">
+      </command>
+      <category
+            description="Commands for visualizing SQL results"
+            id="com.brianwalker.dbeaver.resultsvisualizer.commands.category"
+            name="Results Visualizer">
+      </category>
+   </extension>
+
+   <extension point="org.eclipse.ui.handlers">
+      <handler
+            class="com.brianwalker.dbeaver.resultsvisualizer.commands.OpenResultsVisualizerHandler"
+            commandId="com.brianwalker.dbeaver.resultsvisualizer.commands.open">
+      </handler>
+   </extension>
+
+   <extension point="org.eclipse.ui.menus">
+      <menuContribution locationURI="toolbar:dbeaver-general?after=connection-tools">
+         <command
+               commandId="com.brianwalker.dbeaver.resultsvisualizer.commands.open"
+               icon="icons/results-visualizer.svg"
+               label="Visualize Results"
+               style="push"
+               tooltip="Open Results Visualizer">
+         </command>
+      </menuContribution>
+   </extension>
+</plugin>

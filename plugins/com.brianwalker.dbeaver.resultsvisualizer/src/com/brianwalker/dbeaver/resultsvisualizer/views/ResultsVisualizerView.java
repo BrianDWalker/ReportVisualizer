@@ -1,0 +1,953 @@
+/*
+ * Copyright (c) 2026 Brian Walker.
+ * SPDX-License-Identifier: EPL-2.0
+ */
+package com.brianwalker.dbeaver.resultsvisualizer.views;
+
+import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldDefinition;
+import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldProjection;
+import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldService;
+import com.brianwalker.dbeaver.resultsvisualizer.model.ResultColumn;
+import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetSnapshot;
+import com.brianwalker.dbeaver.resultsvisualizer.model.ResultSetUpdate;
+import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetService;
+import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetServices;
+import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSource;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateQueryBuilder;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateQuery;
+import com.brianwalker.dbeaver.resultsvisualizer.services.CustomSqlDimension;
+import com.brianwalker.dbeaver.resultsvisualizer.services.QueryDimension;
+import com.brianwalker.dbeaver.resultsvisualizer.services.QueryMeasure;
+import com.brianwalker.dbeaver.resultsvisualizer.services.CalculatedFieldSqlTranslator;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.Aggregation;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartCanvas;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDataBuilder;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartRendererRegistry;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartType;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationConfiguration;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerDefinition;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSlicer;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSorter;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixDisplayOptions;
+import java.util.ArrayList;
+import java.util.List;
+import org.eclipse.jface.window.Window;
+import org.eclipse.jface.dialogs.MessageDialog;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.accessibility.AccessibleAdapter;
+import org.eclipse.swt.accessibility.AccessibleEvent;
+import org.eclipse.swt.custom.ScrolledComposite;
+import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.layout.GridLayout;
+import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Combo;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Group;
+import org.eclipse.swt.widgets.Label;
+import org.eclipse.ui.part.ViewPart;
+
+/** Dockable interactive visualization builder driven by the active DBeaver result set. */
+public final class ResultsVisualizerView extends ViewPart {
+
+    public static final String ID =
+            "com.brianwalker.dbeaver.resultsvisualizer.views.resultsVisualizer";
+
+    private enum FieldRole { X, VALUE, SERIES }
+
+    private final ChartRendererRegistry rendererRegistry = ChartRendererRegistry.defaults();
+    private final List<ChartType> chartTypes = rendererRegistry.availableTypes();
+    private final CalculatedFieldService calculatedFieldService = new CalculatedFieldService();
+    private final List<CalculatedFieldDefinition> calculatedFields = new ArrayList<>();
+    private final List<SlicerDefinition> slicers = new ArrayList<>();
+    private final List<CustomSqlDimension> customSqlDimensions = new ArrayList<>();
+    private List<SortRule> sortRules = new ArrayList<>();
+
+    private Composite content;
+    private Label summaryLabel;
+    private Combo sourceCombo;
+    private Label messageLabel;
+    private Label rowLimitWarning;
+    private Group body;
+    private ScrolledComposite configurationScroller;
+    private Group configurationGroup;
+    private Button addCalculatedFieldButton;
+    private Label calculatedFieldStatus;
+    private Button slicersButton;
+    private Button sourceQueryButton;
+    private Button sortButton;
+    private ChartCanvas chartCanvas;
+    private Combo chartTypeCombo;
+    private Combo aggregationCombo;
+    private Combo xWell;
+    private Combo valueWell;
+    private Combo seriesWell;
+    private Combo yMaximumCombo;
+    private Label xWellLabel;
+    private Label seriesWellLabel;
+    private Composite matrixConfiguration;
+    private OrderedFieldWell matrixRowsWell;
+    private OrderedFieldWell matrixColumnsWell;
+    private OrderedFieldWell matrixValuesWell;
+    private Button rowTotalsButton;
+    private Button columnTotalsButton;
+    private Button subtotalsButton;
+    private List<DimensionChoice> xWellChoices = List.of();
+    private List<DimensionChoice> seriesWellChoices = List.of();
+    private List<Integer> valueWellIndexes = List.of();
+    private List<DimensionChoice> matrixRows = new ArrayList<>();
+    private List<DimensionChoice> matrixColumns = new ArrayList<>();
+    private List<DimensionChoice> matrixValues = new ArrayList<>();
+    private DimensionChoice activeXChoice;
+    private DimensionChoice activeSeriesChoice;
+    private MatrixDisplayOptions matrixOptions = MatrixDisplayOptions.DEFAULT;
+    private AggregateQuery pendingAggregateQuery;
+    private ResultSetSnapshot snapshot;
+    private ResultSetSnapshot baseSnapshot;
+    private VisualizationConfiguration configuration;
+    private boolean configurationInitialized;
+    private ResultSetService resultSetService;
+
+    @Override
+    public void createPartControl(Composite parent) {
+        content = new Composite(parent, SWT.NONE);
+        content.setLayout(new GridLayout(1, false));
+        createHeader(content);
+
+        messageLabel = new Label(content, SWT.WRAP);
+        messageLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, true));
+        messageLabel.setText("No active result set available.");
+
+        rowLimitWarning = new Label(content, SWT.WRAP);
+        rowLimitWarning.setText("⚠ The selected Results/Grouping panel reached its row limit. "
+                + "This visual and its local slicers may represent only the loaded rows; use Source Query for a source-level aggregate.");
+        rowLimitWarning.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        setVisible(rowLimitWarning, false);
+
+        createChartPanel(content);
+
+        createConfigurationPanel(content);
+        setVisible(body, false);
+        setVisible(configurationScroller, false);
+
+        resultSetService = ResultSetServices.create(getSite().getPage(), parent.getDisplay());
+        resultSetService.start(this::applyUpdate);
+    }
+
+    private void createHeader(Composite parent) {
+        Composite header = new Composite(parent, SWT.NONE);
+        header.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout layout = new GridLayout(4, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        header.setLayout(layout);
+
+        summaryLabel = new Label(header, SWT.NONE);
+        summaryLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        summaryLabel.setText("Results Visualizer");
+        new Label(header, SWT.NONE).setText("Source:");
+        sourceCombo = new Combo(header, SWT.DROP_DOWN | SWT.READ_ONLY);
+        for (ResultSource source : ResultSource.values()) sourceCombo.add(source.displayName());
+        sourceCombo.select(ResultSource.RESULTS.ordinal());
+        sourceCombo.setToolTipText("Visualize the normal results or DBeaver Grouping panel output");
+        sourceCombo.addListener(SWT.Selection, event -> {
+            if (resultSetService != null && sourceCombo.getSelectionIndex() >= 0) {
+                resultSetService.setSource(ResultSource.values()[sourceCombo.getSelectionIndex()]);
+            }
+        });
+        Button refresh = new Button(header, SWT.PUSH);
+        refresh.setText("Refresh");
+        refresh.setToolTipText("Read the active result set again");
+        refresh.addListener(SWT.Selection, event -> resultSetService.refresh());
+    }
+
+    private void createChartPanel(Composite parent) {
+        body = new Group(parent, SWT.NONE);
+        body.setText("Visualization");
+        body.setLayout(new GridLayout(1, false));
+        body.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+        chartCanvas = new ChartCanvas(body, SWT.BORDER, rendererRegistry);
+        chartCanvas.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+    }
+
+    private void createConfigurationPanel(Composite parent) {
+        configurationScroller = new ScrolledComposite(parent, SWT.V_SCROLL);
+        GridData scrollerData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        scrollerData.heightHint = 128;
+        configurationScroller.setLayoutData(scrollerData);
+        configurationScroller.setExpandHorizontal(true);
+        configurationScroller.setExpandVertical(true);
+        configurationGroup = new Group(configurationScroller, SWT.NONE);
+        configurationGroup.setText("Visualization Builder");
+        GridLayout builderLayout = new GridLayout(1, false);
+        builderLayout.marginWidth = 6;
+        builderLayout.marginHeight = 4;
+        builderLayout.verticalSpacing = 3;
+        configurationGroup.setLayout(builderLayout);
+        configurationGroup.setBackgroundMode(SWT.INHERIT_FORCE);
+        configurationScroller.setContent(configurationGroup);
+
+        Composite wells = new Composite(configurationGroup, SWT.NONE);
+        wells.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout wellsLayout = new GridLayout(3, false);
+        wellsLayout.marginWidth = 0;
+        wellsLayout.marginHeight = 0;
+        wellsLayout.horizontalSpacing = 6;
+        wells.setLayout(wellsLayout);
+        xWell = createWell(wells, "X-Axis", FieldRole.X);
+        valueWell = createWell(wells, "Values", FieldRole.VALUE);
+        seriesWell = createWell(wells, "Series", FieldRole.SERIES);
+
+        matrixConfiguration = new Composite(configurationGroup, SWT.NONE);
+        matrixConfiguration.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout matrixLayout = new GridLayout(3, true);
+        matrixLayout.marginWidth = 0;
+        matrixLayout.marginHeight = 0;
+        matrixLayout.horizontalSpacing = 6;
+        matrixLayout.verticalSpacing = 2;
+        matrixConfiguration.setLayout(matrixLayout);
+        matrixRowsWell = new OrderedFieldWell(matrixConfiguration, "Rows (ordered)", this::setMatrixRows);
+        matrixColumnsWell = new OrderedFieldWell(matrixConfiguration, "Columns (ordered)", this::setMatrixColumns);
+        matrixValuesWell = new OrderedFieldWell(matrixConfiguration, "Values (ordered)", this::setMatrixValues);
+        Composite matrixOptionsBar = new Composite(matrixConfiguration, SWT.NONE);
+        GridData matrixOptionsData = new GridData(SWT.LEFT, SWT.CENTER, false, false);
+        matrixOptionsData.horizontalSpan = 3;
+        matrixOptionsBar.setLayoutData(matrixOptionsData);
+        GridLayout matrixOptionsLayout = new GridLayout(3, false);
+        matrixOptionsLayout.marginWidth = 0;
+        matrixOptionsLayout.marginHeight = 0;
+        matrixOptionsBar.setLayout(matrixOptionsLayout);
+        rowTotalsButton = matrixOption(matrixOptionsBar, "Row totals", matrixOptions.rowTotals());
+        columnTotalsButton = matrixOption(matrixOptionsBar, "Column totals", matrixOptions.columnTotals());
+        subtotalsButton = matrixOption(matrixOptionsBar, "Subtotals", matrixOptions.subtotals());
+        setVisible(matrixConfiguration, false);
+
+        Composite actionBand = new Composite(configurationGroup, SWT.NONE);
+        actionBand.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout actionBandLayout = new GridLayout(2, false);
+        actionBandLayout.marginWidth = 0;
+        actionBandLayout.marginHeight = 0;
+        actionBandLayout.horizontalSpacing = 6;
+        actionBand.setLayout(actionBandLayout);
+
+        Composite localActions = new Composite(actionBand, SWT.NONE);
+        localActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout localLayout = new GridLayout(3, false);
+        localLayout.marginWidth = 0;
+        localLayout.marginHeight = 0;
+        localLayout.horizontalSpacing = 4;
+        localActions.setLayout(localLayout);
+        addCalculatedFieldButton = new Button(localActions, SWT.PUSH);
+        addCalculatedFieldButton.setText("Formulas…");
+        addCalculatedFieldButton.setToolTipText("Create, edit, or delete local calculated fields");
+        addCalculatedFieldButton.setEnabled(false);
+        setAccessibleName(addCalculatedFieldButton, "Manage Local Calculated Fields");
+        addCalculatedFieldButton.addListener(SWT.Selection, event -> openCalculatedFieldManager());
+        slicersButton = new Button(localActions, SWT.PUSH);
+        slicersButton.setText("Slicer…");
+        slicersButton.addListener(SWT.Selection, event -> openSlicerDialog());
+        Button clearSlicers = new Button(localActions, SWT.PUSH);
+        clearSlicers.setText("Clear");
+        clearSlicers.addListener(SWT.Selection, event -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
+        Composite sourceActions = new Composite(actionBand, SWT.NONE);
+        sourceActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout sourceLayout = new GridLayout(2, false);
+        sourceLayout.marginWidth = 0;
+        sourceLayout.marginHeight = 0;
+        sourceLayout.horizontalSpacing = 4;
+        sourceActions.setLayout(sourceLayout);
+        sourceQueryButton = new Button(sourceActions, SWT.PUSH);
+        sourceQueryButton.setText("Source Query…");
+        sourceQueryButton.setToolTipText("Add existing fields and aggregations, manage custom SQL fields, preview SQL, and execute it here");
+        sourceQueryButton.addListener(SWT.Selection, event -> openSourceQueryBuilder());
+        sortButton = new Button(sourceActions, SWT.PUSH);
+        sortButton.setText("Sort…");
+        sortButton.setToolTipText("Set one or more ASC/DESC sort keys in priority order");
+        sortButton.addListener(SWT.Selection, event -> openSortDialog());
+        calculatedFieldStatus = new Label(configurationGroup, SWT.NONE);
+        calculatedFieldStatus.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        setVisible(calculatedFieldStatus, false);
+
+        Composite controls = new Composite(configurationGroup, SWT.NONE);
+        controls.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout controlsLayout = new GridLayout(4, false);
+        controlsLayout.marginWidth = 0;
+        controlsLayout.marginHeight = 0;
+        controlsLayout.horizontalSpacing = 6;
+        controls.setLayout(controlsLayout);
+
+        Composite chartOptions = createOptionCard(controls, "Chart");
+        chartTypeCombo = new Combo(chartOptions, SWT.DROP_DOWN | SWT.READ_ONLY);
+        chartTypeCombo.setLayoutData(compactComboData(90));
+        setAccessibleName(chartTypeCombo, "Chart Type");
+        for (ChartType type : chartTypes) chartTypeCombo.add(type.displayName());
+        chartTypeCombo.addListener(SWT.Selection, event -> {
+            if (configuration == null) return;
+            configuration = configuration.withChartType(selectedChartType());
+            initializeDimensionSelections(snapshot);
+            updateRoleLabels();
+            selectNumericXForScatter();
+            updateChart();
+        });
+
+        Composite aggregationOptions = createOptionCard(controls, "Agg");
+        aggregationCombo = new Combo(aggregationOptions, SWT.DROP_DOWN | SWT.READ_ONLY);
+        aggregationCombo.setLayoutData(compactComboData(80));
+        setAccessibleName(aggregationCombo, "Aggregation");
+        for (Aggregation aggregation : Aggregation.values()) aggregationCombo.add(aggregation.toString());
+        aggregationCombo.addListener(SWT.Selection, event -> {
+            if (configuration == null || aggregationCombo.getSelectionIndex() < 0) return;
+            configuration = configuration.withAggregation(
+                    Aggregation.values()[aggregationCombo.getSelectionIndex()]);
+            updateChart();
+        });
+
+        Composite yMaximumOptions = createOptionCard(controls, "Y Max");
+        yMaximumCombo = new Combo(yMaximumOptions, SWT.DROP_DOWN);
+        yMaximumCombo.setLayoutData(compactComboData(85));
+        yMaximumCombo.add("Auto (rounded)");
+        yMaximumCombo.add("100");
+        yMaximumCombo.add("1,000");
+        yMaximumCombo.add("10,000");
+        yMaximumCombo.select(0);
+        yMaximumCombo.setToolTipText("Use Auto for a rounded upper bound, or type a number and press Enter");
+        yMaximumCombo.addListener(SWT.Selection, event -> applyYMaximum());
+        yMaximumCombo.addListener(SWT.DefaultSelection, event -> applyYMaximum());
+        yMaximumCombo.addListener(SWT.FocusOut, event -> applyYMaximum());
+
+        Button reset = new Button(controls, SWT.PUSH);
+        reset.setText("Reset");
+        reset.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        setAccessibleName(reset, "Reset Visualization");
+        reset.setToolTipText("Clear field assignments without changing SQL or results");
+        reset.addListener(SWT.Selection, event -> resetVisualization());
+
+        ViewTheme.compact(configurationGroup);
+        ViewTheme.improveContrast(configurationGroup);
+        updateConfigurationViewport(false);
+    }
+
+    private static Composite createOptionCard(Composite parent, String title) {
+        Composite card = new Composite(parent, SWT.NONE);
+        card.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout layout = new GridLayout(2, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        layout.horizontalSpacing = 3;
+        card.setLayout(layout);
+        new Label(card, SWT.NONE).setText(title + ":");
+        return card;
+    }
+
+    private static GridData compactComboData(int width) {
+        GridData data = new GridData(SWT.LEFT, SWT.CENTER, false, false);
+        data.widthHint = width;
+        return data;
+    }
+
+    private Button matrixOption(Composite parent, String text, boolean selected) {
+        Button button = new Button(parent, SWT.CHECK);
+        button.setText(text);
+        button.setSelection(selected);
+        button.addListener(SWT.Selection, event -> {
+            matrixOptions = new MatrixDisplayOptions(rowTotalsButton.getSelection(),
+                    columnTotalsButton.getSelection(), subtotalsButton.getSelection());
+            updateChart();
+        });
+        return button;
+    }
+
+    private Combo createWell(Composite parent, String title, FieldRole role) {
+        Composite card = new Composite(parent, SWT.NONE);
+        card.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout layout = new GridLayout(2, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        layout.horizontalSpacing = 3;
+        card.setLayout(layout);
+        Label label = new Label(card, SWT.NONE);
+        label.setText(title + ":");
+        if (role == FieldRole.X) xWellLabel = label;
+        if (role == FieldRole.SERIES) seriesWellLabel = label;
+        Combo well = new Combo(card, SWT.DROP_DOWN | SWT.READ_ONLY);
+        setAccessibleName(well, title + " field well");
+        well.setLayoutData(compactComboData(100));
+        well.setToolTipText("Select a field from the list");
+        well.addListener(SWT.Selection, event -> assignRole(role, well.getSelectionIndex() - 1));
+        return well;
+    }
+
+    private void updateRoleLabels() {
+        boolean matrix = selectedChartType() == ChartType.MATRIX || selectedChartType() == ChartType.HEATMAP;
+        xWellLabel.setText("X-Axis:");
+        seriesWellLabel.setText("Series:");
+        setVisible(xWell.getParent(), !matrix);
+        setVisible(valueWell.getParent(), !matrix);
+        setVisible(seriesWell.getParent(), !matrix);
+        setVisible(matrixConfiguration, matrix);
+        if (matrix && snapshot != null) updateMatrixWells();
+        configurationGroup.layout(true, true);
+        updateConfigurationViewport(matrix);
+    }
+
+    private void updateConfigurationViewport(boolean matrix) {
+        if (configurationScroller == null || configurationScroller.isDisposed()) return;
+        GridData data = (GridData) configurationScroller.getLayoutData();
+        data.heightHint = matrix ? 235 : 128;
+        int preferredHeight = configurationGroup.computeSize(SWT.DEFAULT, SWT.DEFAULT).y;
+        configurationScroller.setMinSize(0, preferredHeight);
+        configurationScroller.getParent().layout(true, true);
+    }
+
+    private void applyUpdate(ResultSetUpdate update) {
+        if (content == null || content.isDisposed()) return;
+        switch (update.status()) {
+            case LOADING -> showMessage("Reading the active result set...");
+            case NO_ACTIVE_RESULT, ERROR -> {
+                pendingAggregateQuery = null;
+                showMessage(update.message());
+            }
+            case READY -> showBaseSnapshot(update.snapshot());
+        }
+    }
+
+    private void showMessage(String message) {
+        summaryLabel.setText("Results Visualizer");
+        messageLabel.setText(message);
+        setVisible(messageLabel, true);
+        setVisible(rowLimitWarning, false);
+        setVisible(body, false);
+        setVisible(configurationScroller, false);
+        if (addCalculatedFieldButton != null) addCalculatedFieldButton.setEnabled(false);
+        content.layout(true, true);
+    }
+
+    private void showBaseSnapshot(ResultSetSnapshot newBaseSnapshot) {
+        baseSnapshot = newBaseSnapshot;
+        CalculatedFieldProjection projection =
+                calculatedFieldService.project(newBaseSnapshot, calculatedFields);
+        updateFieldStatus(projection.errors());
+        showSnapshot(projection.snapshot());
+    }
+
+    private void showSnapshot(ResultSetSnapshot newSnapshot) {
+        ResultSetSnapshot previous = snapshot;
+        snapshot = newSnapshot;
+        slicers.removeIf(slicer -> newSnapshot.columns().stream().noneMatch(column ->
+                column.displayName().equalsIgnoreCase(slicer.fieldName())));
+        updateSlicerLabel();
+        addCalculatedFieldButton.setEnabled(true);
+        if (newSnapshot.columns().isEmpty()) {
+            showMessage("The active result set has no columns.");
+            return;
+        }
+        if (applyPendingAggregateResult(newSnapshot)) {
+            configurationInitialized = true;
+        } else if (!configurationInitialized) {
+            configuration = ChartDataBuilder.defaultVisualization(newSnapshot);
+            configurationInitialized = true;
+        } else if (!isCompatible(previous, newSnapshot, configuration)) {
+            configuration = ChartDataBuilder.defaultVisualization(newSnapshot);
+            activeXChoice = null;
+            activeSeriesChoice = null;
+            matrixRows.clear();
+            matrixColumns.clear();
+        }
+        initializeDimensionSelections(newSnapshot);
+        populateControls(newSnapshot);
+
+        String source = newSnapshot.sourceName().isBlank() ? "Active result set" : newSnapshot.sourceName();
+        String copied = newSnapshot.truncated() ? ", row limit reached" : "";
+        summaryLabel.setText(source + " — " + newSnapshot.columns().size() + " fields, "
+                + newSnapshot.availableRowCount() + " rows" + copied);
+        setVisible(rowLimitWarning, newSnapshot.truncated());
+        setVisible(messageLabel, false);
+        setVisible(body, true);
+        setVisible(configurationScroller, true);
+        updateChart();
+        content.layout(true, true);
+    }
+
+    private void openCalculatedFieldManager() {
+        if (snapshot == null || baseSnapshot == null) return;
+        CalculatedFieldManagerDialog dialog = new CalculatedFieldManagerDialog(
+                content.getShell(), snapshot, calculatedFieldService, calculatedFields);
+        if (dialog.open() != Window.OK) return;
+        calculatedFields.clear();
+        calculatedFields.addAll(dialog.definitions());
+        showBaseSnapshot(baseSnapshot);
+    }
+
+    private void populateControls(ResultSetSnapshot value) {
+        xWellChoices = dimensionChoices(value);
+        seriesWellChoices = dimensionChoices(value);
+        populateDimensionWell(xWell, xWellChoices, selectedRows().stream().findFirst().orElse(null));
+        valueWell.removeAll();
+        valueWell.add("(none)");
+        valueWellIndexes = java.util.stream.IntStream.range(0, value.columns().size())
+                .filter(index -> ChartDataBuilder.isNumeric(value.columns().get(index)))
+                .boxed().toList();
+        for (int index : valueWellIndexes) valueWell.add(value.columns().get(index).displayName());
+        populateDimensionWell(seriesWell, seriesWellChoices, selectedColumns().stream().findFirst().orElse(null));
+        chartTypeCombo.select(chartTypes.indexOf(configuration.chartType()));
+        updateRoleLabels();
+        aggregationCombo.select(configuration.aggregation().ordinal());
+        int valueSelection = valueWellIndexes.indexOf(configuration.valueColumnIndex());
+        valueWell.select(valueSelection < 0 ? 0 : valueSelection + 1);
+        if (configuration.yAxisMaximum() == null) {
+            yMaximumCombo.select(0);
+        } else {
+            yMaximumCombo.setText(formatAxisMaximum(configuration.yAxisMaximum()));
+        }
+    }
+
+    private void assignRole(FieldRole role, int index) {
+        if (configuration == null || snapshot == null) return;
+        if (role == FieldRole.VALUE) {
+            if (index < 0) {
+                configuration = configuration.withValue(VisualizationConfiguration.UNASSIGNED);
+                matrixValues.clear();
+            } else if (index < valueWellIndexes.size()) {
+                configuration = configuration.withValue(valueWellIndexes.get(index));
+                matrixValues = new ArrayList<>(List.of(
+                        DimensionChoice.result(snapshot, valueWellIndexes.get(index))));
+            } else {
+                return;
+            }
+        } else {
+            List<DimensionChoice> choices = role == FieldRole.X ? xWellChoices : seriesWellChoices;
+            DimensionChoice choice = index < 0 || index >= choices.size() ? null : choices.get(index);
+            if (role == FieldRole.X) {
+                activeXChoice = choice;
+                matrixRows = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+                configuration = configuration.withXColumns(resultIndexes(matrixRows));
+            } else {
+                activeSeriesChoice = choice;
+                matrixColumns = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+                configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
+            }
+        }
+        populateControls(snapshot);
+        selectNumericXForScatter();
+        updateChart();
+    }
+
+    private void selectNumericXForScatter() {
+        if (snapshot == null || configuration.chartType() != ChartType.SCATTER) return;
+        int x = configuration.xColumnIndex();
+        if (x >= 0 && ChartDataBuilder.isNumeric(snapshot.columns().get(x))) return;
+        int numericX = ChartDataBuilder.firstNumericColumn(
+                snapshot.columns(), configuration.valueColumnIndex());
+        if (numericX >= 0) {
+            configuration = configuration.withX(numericX);
+            activeXChoice = DimensionChoice.result(snapshot, numericX);
+            xWell.select(numericX + 1);
+        }
+    }
+
+    private void resetVisualization() {
+        if (configuration == null) return;
+        configuration = VisualizationConfiguration.empty(configuration.chartType());
+        activeXChoice = null;
+        activeSeriesChoice = null;
+        matrixRows.clear();
+        matrixColumns.clear();
+        matrixValues.clear();
+        sortRules = new ArrayList<>();
+        updateSortButton();
+        populateControls(snapshot);
+        chartCanvas.setPrompt("Choose X and Values below to build a chart.");
+    }
+
+    private void setMatrixRows(List<DimensionChoice> choices) {
+        matrixRows = new ArrayList<>(choices);
+        activeXChoice = matrixRows.isEmpty() ? null : matrixRows.get(0);
+        configuration = configuration.withXColumns(resultIndexes(matrixRows));
+        updateChart();
+    }
+
+    private void setMatrixColumns(List<DimensionChoice> choices) {
+        matrixColumns = new ArrayList<>(choices);
+        activeSeriesChoice = matrixColumns.isEmpty() ? null : matrixColumns.get(0);
+        configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
+        updateChart();
+    }
+
+    private void setMatrixValues(List<DimensionChoice> choices) {
+        matrixValues = new ArrayList<>(choices);
+        int primary = matrixValues.isEmpty() ? VisualizationConfiguration.UNASSIGNED
+                : matrixValues.get(0).resultIndex();
+        configuration = configuration.withValue(primary);
+        updateChart();
+    }
+
+    private void updateMatrixWells() {
+        matrixRowsWell.setChoices(dimensionChoices(snapshot), matrixRows);
+        matrixColumnsWell.setChoices(dimensionChoices(snapshot), matrixColumns);
+        List<DimensionChoice> numeric = valueWellIndexes.stream()
+                .map(index -> DimensionChoice.result(snapshot, index)).toList();
+        matrixValuesWell.setChoices(numeric, matrixValues);
+    }
+
+    private void initializeDimensionSelections(ResultSetSnapshot value) {
+        matrixValues.removeIf(choice -> choice.isCustom()
+                || choice.resultIndex() >= value.columns().size()
+                || !ChartDataBuilder.isNumeric(value.columns().get(choice.resultIndex())));
+        if (activeXChoice == null || (!activeXChoice.isCustom()
+                && activeXChoice.resultIndex() >= value.columns().size())) {
+            activeXChoice = configuration.xColumnIndex() < 0 ? null
+                    : DimensionChoice.result(value, configuration.xColumnIndex());
+        }
+        if (activeSeriesChoice == null || (!activeSeriesChoice.isCustom()
+                && activeSeriesChoice.resultIndex() >= value.columns().size())) {
+            activeSeriesChoice = configuration.seriesColumnIndex() < 0 ? null
+                    : DimensionChoice.result(value, configuration.seriesColumnIndex());
+        }
+        if (matrixRows.isEmpty()) {
+            matrixRows = configuration.xColumnIndexes().stream()
+                    .map(index -> DimensionChoice.result(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        }
+        if (matrixColumns.isEmpty()) {
+            matrixColumns = configuration.seriesColumnIndexes().stream()
+                    .map(index -> DimensionChoice.result(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        }
+        if (matrixValues.isEmpty() && configuration.valueColumnIndex() >= 0) {
+            matrixValues.add(DimensionChoice.result(value, configuration.valueColumnIndex()));
+        }
+    }
+
+    private boolean applyPendingAggregateResult(ResultSetSnapshot value) {
+        if (pendingAggregateQuery == null) return false;
+        List<Integer> rows = findColumns(value, pendingAggregateQuery.rowAliases());
+        List<Integer> columns = findColumns(value, pendingAggregateQuery.columnAliases());
+        int resultValue = findColumn(value, pendingAggregateQuery.valueAlias());
+        if (rows.size() != pendingAggregateQuery.rowAliases().size()
+                || columns.size() != pendingAggregateQuery.columnAliases().size() || resultValue < 0) return false;
+        configuration = new VisualizationConfiguration(configuration.chartType(), rows, resultValue,
+                columns, Aggregation.SUM, configuration.yAxisMaximum());
+        activeXChoice = DimensionChoice.result(value, rows.get(0));
+        activeSeriesChoice = columns.isEmpty() ? null : DimensionChoice.result(value, columns.get(0));
+        matrixRows = rows.stream().map(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        matrixColumns = columns.stream().map(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        matrixValues = java.util.stream.IntStream.range(0, value.columns().size())
+                .filter(index -> !rows.contains(index) && !columns.contains(index)
+                        && ChartDataBuilder.isNumeric(value.columns().get(index)))
+                .mapToObj(index -> DimensionChoice.result(value, index))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if (matrixValues.isEmpty()) matrixValues.add(DimensionChoice.result(value, resultValue));
+        pendingAggregateQuery = null;
+        return true;
+    }
+
+    private List<DimensionChoice> selectedRows() {
+        return isMatrix() ? List.copyOf(matrixRows)
+                : activeXChoice == null ? List.of() : List.of(activeXChoice);
+    }
+
+    private List<DimensionChoice> selectedColumns() {
+        return isMatrix() ? List.copyOf(matrixColumns)
+                : activeSeriesChoice == null ? List.of() : List.of(activeSeriesChoice);
+    }
+
+    private boolean isMatrix() {
+        return configuration != null
+                && (configuration.chartType() == ChartType.MATRIX || configuration.chartType() == ChartType.HEATMAP);
+    }
+
+    private List<DimensionChoice> dimensionChoices(ResultSetSnapshot value) {
+        List<DimensionChoice> choices = new ArrayList<>();
+        for (int index = 0; index < value.columns().size(); index++) choices.add(DimensionChoice.result(value, index));
+        customSqlDimensions.stream()
+                .filter(dimension -> value.columns().stream().noneMatch(column ->
+                        column.displayName().equalsIgnoreCase(dimension.name())))
+                .map(DimensionChoice::custom).forEach(choices::add);
+        return List.copyOf(choices);
+    }
+
+    private static void populateDimensionWell(Combo well, List<DimensionChoice> choices,
+            DimensionChoice selected) {
+        well.removeAll();
+        well.add("(none)");
+        choices.forEach(choice -> well.add(choice.displayName()));
+        int index = -1;
+        if (selected != null) {
+            for (int choiceIndex = 0; choiceIndex < choices.size(); choiceIndex++) {
+                if (sameChoice(selected, choices.get(choiceIndex))) { index = choiceIndex; break; }
+            }
+        }
+        well.select(index + 1);
+    }
+
+    private static boolean sameChoice(DimensionChoice left, DimensionChoice right) {
+        return left.displayName().equalsIgnoreCase(right.displayName())
+                && left.isCustom() == right.isCustom();
+    }
+
+    private static List<Integer> resultIndexes(List<DimensionChoice> choices) {
+        return choices.stream().filter(choice -> !choice.isCustom())
+                .map(DimensionChoice::resultIndex).toList();
+    }
+
+    private static List<Integer> findColumns(ResultSetSnapshot value, List<String> names) {
+        List<Integer> indexes = new ArrayList<>();
+        for (String name : names) {
+            int index = findColumn(value, name);
+            if (index >= 0) indexes.add(index);
+        }
+        return indexes;
+    }
+
+    private static int findColumn(ResultSetSnapshot value, String name) {
+        for (int index = 0; index < value.columns().size(); index++) {
+            if (value.columns().get(index).displayName().equalsIgnoreCase(name)) return index;
+        }
+        return -1;
+    }
+
+    private void openSlicerDialog() {
+        if (snapshot == null) return;
+        SlicerDialog dialog = new SlicerDialog(content.getShell(), snapshot, this::previewDistinctSourceQuery);
+        if (dialog.open() != Window.OK || dialog.definition() == null) return;
+        slicers.removeIf(existing -> existing.fieldName().equalsIgnoreCase(dialog.definition().fieldName()));
+        slicers.add(dialog.definition());
+        updateSlicerLabel();
+        updateChart();
+    }
+
+    private DimensionChoice retainChoice(DimensionChoice choice) {
+        if (choice == null || !choice.isCustom()) return choice;
+        return customSqlDimensions.stream().filter(field -> field.name().equalsIgnoreCase(choice.displayName()))
+                .map(DimensionChoice::custom).findFirst().orElse(null);
+    }
+
+    private List<DimensionChoice> refreshChoices(List<DimensionChoice> choices) {
+        return choices.stream().map(this::retainChoice)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private void updateFieldStatus(List<String> errors) {
+        configurationGroup.setText("Visualization Builder");
+        configurationGroup.setToolTipText(calculatedFields.size() + " local field(s), "
+                + customSqlDimensions.size() + " SQL field(s)");
+        if (addCalculatedFieldButton != null && !addCalculatedFieldButton.isDisposed()) {
+            addCalculatedFieldButton.setText(calculatedFields.isEmpty()
+                    ? "Formulas…" : "Formulas (" + calculatedFields.size() + ")…");
+        }
+        if (sourceQueryButton != null && !sourceQueryButton.isDisposed()) {
+            sourceQueryButton.setText(customSqlDimensions.isEmpty()
+                    ? "Source Query…" : "Source Query (" + customSqlDimensions.size() + ")…");
+        }
+        calculatedFieldStatus.setText(String.join("  ", errors));
+        setVisible(calculatedFieldStatus, !errors.isEmpty());
+        configurationGroup.layout(true, true);
+        updateConfigurationViewport(configuration != null && isMatrix());
+    }
+
+    private void openSourceQueryBuilder() {
+        if (snapshot == null || configuration == null) return;
+        try {
+            List<QueryDimension> dimensions = baseQueryDimensions();
+            List<QueryMeasure> measures = baseQueryMeasures();
+            String selectedMeasure = configuration.valueColumnIndex() < 0 ? ""
+                    : snapshot.columns().get(configuration.valueColumnIndex()).displayName();
+            FullSqlConfigurationDialog dialog = new FullSqlConfigurationDialog(content.getShell(),
+                    resultSetService.sourceQuery(), dimensions, measures, customSqlDimensions,
+                    snapshot, sqlTranslator(),
+                    selectedRows().stream().map(DimensionChoice::displayName).toList(),
+                    selectedColumns().stream().map(DimensionChoice::displayName).toList(),
+                    selectedMeasure, configuration.aggregation(), slicers, sortRules);
+            if (dialog.open() == Window.OK) {
+                applyCustomSqlFields(dialog.customFields());
+            }
+            if (dialog.executeRequested() && dialog.query() != null) {
+                pendingAggregateQuery = dialog.query();
+                summaryLabel.setText("Executing source aggregate query…");
+                resultSetService.executeQuery("Results Visualizer Source Query", dialog.query().sql());
+            }
+        } catch (RuntimeException error) {
+            MessageDialog.openError(content.getShell(), "Cannot Build Aggregate Query", error.getMessage());
+        }
+    }
+
+    private void applyCustomSqlFields(List<CustomSqlDimension> definitions) {
+        if (definitions.stream().anyMatch(field -> snapshot.columns().stream()
+                .anyMatch(column -> column.displayName().equalsIgnoreCase(field.name())))) {
+            MessageDialog.openError(content.getShell(), "Duplicate Field Name",
+                    "SQL field names must be different from existing result fields.");
+            return;
+        }
+        customSqlDimensions.clear();
+        customSqlDimensions.addAll(definitions);
+        activeXChoice = retainChoice(activeXChoice);
+        activeSeriesChoice = retainChoice(activeSeriesChoice);
+        matrixRows = refreshChoices(matrixRows);
+        matrixColumns = refreshChoices(matrixColumns);
+        populateControls(snapshot);
+        updateFieldStatus(List.of());
+        updateChart();
+    }
+
+    private List<QueryDimension> baseQueryDimensions() {
+        CalculatedFieldSqlTranslator translator = sqlTranslator();
+        List<QueryDimension> dimensions = new ArrayList<>();
+        for (ResultColumn column : snapshot.columns()) {
+            dimensions.add(new QueryDimension(column.displayName(),
+                    translator.expressionFor(column.displayName())));
+        }
+        return List.copyOf(dimensions);
+    }
+
+    private List<QueryMeasure> baseQueryMeasures() {
+        CalculatedFieldSqlTranslator translator = sqlTranslator();
+        List<QueryMeasure> measures = new ArrayList<>();
+        for (ResultColumn column : snapshot.columns()) {
+            if (ChartDataBuilder.isNumeric(column)) {
+                measures.add(new QueryMeasure(column.displayName(),
+                        translator.expressionFor(column.displayName())));
+            }
+        }
+        return List.copyOf(measures);
+    }
+
+    private CalculatedFieldSqlTranslator sqlTranslator() {
+        ResultSetSnapshot source = baseSnapshot == null ? snapshot : baseSnapshot;
+        return new CalculatedFieldSqlTranslator(source.columns(), calculatedFields);
+    }
+
+    private void previewDistinctSourceQuery(String fieldName) {
+        try {
+            resultSetService.previewQuery("Distinct Source Values",
+                    AggregateQueryBuilder.distinct(resultSetService.sourceQuery(), fieldName));
+        } catch (RuntimeException error) {
+            MessageDialog.openError(content.getShell(), "Cannot Build DISTINCT Query", error.getMessage());
+        }
+    }
+
+    private void updateSlicerLabel() {
+        if (slicersButton != null && !slicersButton.isDisposed()) {
+            slicersButton.setText(slicers.isEmpty() ? "Slicer…" : "Slicers (" + slicers.size() + ")…");
+            slicersButton.getParent().layout(true, true);
+        }
+    }
+
+    private void openSortDialog() {
+        if (snapshot == null) return;
+        SortDialog dialog = new SortDialog(content.getShell(), snapshot, sortRules);
+        if (dialog.open() != Window.OK) return;
+        sortRules = new ArrayList<>(dialog.rules());
+        updateSortButton();
+        updateChart();
+    }
+
+    private void updateSortButton() {
+        if (sortButton == null || sortButton.isDisposed()) return;
+        sortButton.setText(sortRules.isEmpty() ? "Sort…" : "Sort (" + sortRules.size() + ")…");
+        sortButton.getParent().layout(true, true);
+    }
+
+    private void applyYMaximum() {
+        if (configuration == null) return;
+        String text = yMaximumCombo.getText().trim();
+        if (text.isEmpty() || text.equalsIgnoreCase("Auto (rounded)")) {
+            configuration = configuration.withYAxisMaximum(null);
+            yMaximumCombo.select(0);
+            updateChart();
+            return;
+        }
+        try {
+            double maximum = Double.parseDouble(text.replace(",", ""));
+            if (!Double.isFinite(maximum)) throw new NumberFormatException();
+            configuration = configuration.withYAxisMaximum(maximum);
+            yMaximumCombo.setText(formatAxisMaximum(maximum));
+            updateChart();
+        } catch (NumberFormatException error) {
+            yMaximumCombo.setToolTipText("Enter a valid number, or choose Auto (rounded)");
+            yMaximumCombo.select(0);
+            configuration = configuration.withYAxisMaximum(null);
+            updateChart();
+        }
+    }
+
+    private static String formatAxisMaximum(double value) {
+        return value == Math.rint(value) ? Long.toString((long) value) : Double.toString(value);
+    }
+
+    private void updateChart() {
+        if (snapshot == null || configuration == null) return;
+        List<DimensionChoice> rows = selectedRows();
+        if (rows.isEmpty() || (isMatrix() ? matrixValues.isEmpty() : configuration.valueColumnIndex() < 0)) {
+            chartCanvas.setPrompt("Choose X and Values below to build a chart.");
+            return;
+        }
+        if (rows.stream().anyMatch(DimensionChoice::isCustom)
+                || selectedColumns().stream().anyMatch(DimensionChoice::isCustom)) {
+            chartCanvas.setPrompt("Custom SQL fields run at the database. Choose Source Query, then Execute.");
+            return;
+        }
+        configuration = configuration.withXColumns(resultIndexes(rows))
+                .withSeriesColumns(resultIndexes(selectedColumns()));
+        ResultSetSnapshot filtered = SnapshotSorter.apply(
+                SnapshotSlicer.apply(snapshot, slicers), sortRules);
+        var dataset = isMatrix()
+                ? ChartDataBuilder.buildMatrixValues(filtered, configuration, resultIndexes(matrixValues))
+                : ChartDataBuilder.build(filtered, configuration);
+        if (isMatrix()) dataset = dataset.withMatrixOptions(matrixOptions);
+        chartCanvas.setChart(configuration.chartType(), dataset);
+    }
+
+    private ChartType selectedChartType() {
+        int selection = chartTypeCombo.getSelectionIndex();
+        return selection < 0 ? ChartType.BAR : chartTypes.get(selection);
+    }
+
+    private static boolean isCompatible(ResultSetSnapshot oldSnapshot,
+            ResultSetSnapshot newSnapshot, VisualizationConfiguration value) {
+        if (oldSnapshot == null || value == null) return false;
+        return value.xColumnIndexes().stream().allMatch(index -> sameColumn(oldSnapshot, newSnapshot, index))
+                && sameColumn(oldSnapshot, newSnapshot, value.valueColumnIndex())
+                && value.seriesColumnIndexes().stream().allMatch(index -> sameColumn(oldSnapshot, newSnapshot, index));
+    }
+
+    private static boolean sameColumn(ResultSetSnapshot oldSnapshot,
+            ResultSetSnapshot newSnapshot, int index) {
+        if (index < 0) return true;
+        if (index >= oldSnapshot.columns().size() || index >= newSnapshot.columns().size()) return false;
+        ResultColumn oldColumn = oldSnapshot.columns().get(index);
+        ResultColumn newColumn = newSnapshot.columns().get(index);
+        return oldColumn.displayName().equals(newColumn.displayName())
+                && oldColumn.normalizedType() == newColumn.normalizedType();
+    }
+
+    private static void setVisible(org.eclipse.swt.widgets.Control control, boolean visible) {
+        control.setVisible(visible);
+        if (control.getLayoutData() instanceof GridData data) data.exclude = !visible;
+    }
+
+    private static void setAccessibleName(Control control, String name) {
+        control.getAccessible().addAccessibleListener(new AccessibleAdapter() {
+            @Override
+            public void getName(AccessibleEvent event) {
+                event.result = name;
+            }
+        });
+    }
+
+    @Override
+    public void setFocus() {
+        if (xWell != null && !xWell.isDisposed() && xWell.isVisible()) {
+            xWell.setFocus();
+        } else if (content != null && !content.isDisposed()) {
+            content.setFocus();
+        }
+    }
+
+    @Override
+    public void dispose() {
+        if (resultSetService != null) resultSetService.close();
+        super.dispose();
+    }
+}
