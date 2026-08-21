@@ -209,7 +209,7 @@ final class ChartDrawing {
         graphics.drawText(label, labelX, labelY);
     }
 
-    private static void drawLegend(ChartGraphics graphics, Rectangle plot, List<String> seriesNames,
+    static void drawLegend(ChartGraphics graphics, Rectangle plot, List<String> seriesNames,
             ChartDisplayOptions.LegendPosition position) {
         if (position == ChartDisplayOptions.LegendPosition.NONE) return;
         if (seriesNames.size() <= 1 || seriesNames.stream().allMatch(String::isBlank)) return;

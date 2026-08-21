@@ -33,7 +33,7 @@ public final class HorizontalBarChartRenderer implements ChartRenderer {
                 int y = plot.y + c * slot + s * barHeight;
                 gc.fillRoundRectangle(plot.x, y, Math.max(1, width),
                         Math.max(1, barHeight - 2), 7, 7);
-                if (ChartDrawing.shouldDrawValueLabel(c, categories.size())) {
+                if (data.displayOptions().dataLabels() && ChartDrawing.shouldDrawValueLabel(c, categories.size())) {
                     String value = ChartDrawing.formatNumber(point.y());
                     gc.setForeground(gc.theme().foreground());
                     gc.drawText(value, Math.min(plot.x + plot.width - gc.textExtent(value).width(),
@@ -42,5 +42,6 @@ public final class HorizontalBarChartRenderer implements ChartRenderer {
             }
         }
         gc.drawText(data.yAxisTitle(), plot.x, bounds.y + 6);
+        ChartDrawing.drawLegend(gc, plot, series, data.displayOptions().legendPosition());
     }
 }

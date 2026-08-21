@@ -40,11 +40,17 @@ public final class PieChartRenderer implements ChartRenderer {
             gc.setBackground(ChartDrawing.seriesColor(gc, index));
             gc.fillArc(x, y, diameter, diameter, start, arc);
             start += arc;
-            int legendY = bounds.y + 24 + index * 22;
-            gc.fillRectangle(x + diameter + 26, legendY + 3, 12, 12);
-            gc.setForeground(gc.theme().foreground());
-            gc.drawText(label(entry.getKey(), entry.getValue(), total, data.displayOptions().pieLabelMode()),
-                    x + diameter + 44, legendY);
+            if (data.displayOptions().dataLabels()
+                    && data.displayOptions().legendPosition() != ChartDisplayOptions.LegendPosition.NONE) {
+                int legendX = data.displayOptions().legendPosition() == ChartDisplayOptions.LegendPosition.RIGHT
+                        ? x + diameter + 26 : x + index * Math.max(76, diameter / Math.max(1, values.size()));
+                int legendY = data.displayOptions().legendPosition() == ChartDisplayOptions.LegendPosition.RIGHT
+                        ? bounds.y + 24 + index * 22 : bounds.y + diameter + 12;
+                gc.fillRectangle(legendX, legendY + 3, 12, 12);
+                gc.setForeground(gc.theme().foreground());
+                gc.drawText(label(entry.getKey(), entry.getValue(), total, data.displayOptions().pieLabelMode()),
+                        legendX + 18, legendY);
+            }
             index++;
         }
         if (type == ChartType.DONUT) {
