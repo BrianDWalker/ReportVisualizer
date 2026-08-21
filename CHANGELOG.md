@@ -2,6 +2,11 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.6 — 2026-08-20
+
+- Fixed the **Values…** scroller to size its row content before display, so
+  selected fields and aggregation controls render immediately.
+
 ## 1.2.5 — 2026-08-20
 
 - Made the compact **Values…** dialog's measure list vertically scrollable, so
