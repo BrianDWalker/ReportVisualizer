@@ -71,10 +71,21 @@ public final class DateHierarchyProjector {
             try { return LocalDate.from(temporal); } catch (RuntimeException ignored) { return null; }
         }
         if (value instanceof CharSequence text) {
-            try { return LocalDate.parse(text); }
+            String valueText = text.toString().trim();
+            try { return LocalDate.parse(valueText); }
             catch (RuntimeException ignored) {
-                try { return LocalDateTime.parse(text).toLocalDate(); }
-                catch (RuntimeException ignoredAgain) { return null; }
+                try { return LocalDateTime.parse(valueText).toLocalDate(); }
+                catch (RuntimeException ignoredAgain) {
+                    // JDBC drivers commonly expose timestamps as a string such as
+                    // "2026-08-20 14:30:00.000" instead of a java.sql.Timestamp.
+                    // Keep this local and format-neutral: an ISO calendar-date prefix
+                    // is sufficient for every hierarchy level.
+                    if (valueText.length() >= 10) {
+                        try { return LocalDate.parse(valueText.substring(0, 10)); }
+                        catch (RuntimeException ignoredPrefix) { return null; }
+                    }
+                    return null;
+                }
             }
         }
         return null;

@@ -2,6 +2,12 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.2 — 2026-08-20
+
+- Fixed Date Level projection for DATE/DATETIME columns whose JDBC driver returns
+  ISO timestamp strings (for example, `2026-08-20 14:30:00.000`). Selecting a
+  level or drilling now changes the local chart grouping and labels as expected.
+
 ## 1.2.1 — 2026-08-20
 
 - Reworked Date Level so an active DATE/DATETIME X, Series, Matrix Row, or

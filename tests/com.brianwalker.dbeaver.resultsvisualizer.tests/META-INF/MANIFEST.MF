@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Results Visualizer Tests
 Bundle-SymbolicName: com.brianwalker.dbeaver.resultsvisualizer.tests
-Bundle-Version: 1.2.1.qualifier
+Bundle-Version: 1.2.2.qualifier
 Bundle-Vendor: Brian Walker
 Fragment-Host: com.brianwalker.dbeaver.resultsvisualizer;bundle-version="[1.0.0,2.0.0)"
 Bundle-RequiredExecutionEnvironment: JavaSE-21
