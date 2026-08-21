@@ -23,7 +23,8 @@ public record AggregateResultBinding(VisualizationConfiguration configuration, L
         }
         if (values.isEmpty()) values.add(value);
         return Optional.of(new AggregateResultBinding(new VisualizationConfiguration(current.chartType(), rows, value,
-                columns, Aggregation.SUM, current.yAxisMaximum()), List.copyOf(rows), List.copyOf(columns), List.copyOf(values)));
+                columns, query.localAggregationFor(query.valueAlias()), current.yAxisMaximum()),
+                List.copyOf(rows), List.copyOf(columns), List.copyOf(values)));
     }
 
     private static List<Integer> indexes(ResultSetSnapshot snapshot, List<String> names) {

@@ -10,16 +10,15 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
  * matrix instead of only the currently visible, scrolled viewport).
  */
 public final class MatrixCanvasMetrics {
-    /** Approximate on-screen width of one value column outside an actual render pass. */
-    private static final int APPROXIMATE_COLUMN_WIDTH = 110;
-
     private MatrixCanvasMetrics() {
     }
 
     public static int width(ChartDataset dataset) {
-        return dataset.rowLevelCount() * MatrixChartRenderer.ROW_WIDTH
+        int rowWidth = dataset.matrixOptions().layout() == MatrixDisplayOptions.Layout.STEPPED
+                ? MatrixChartRenderer.ROW_WIDTH * 2 : dataset.rowLevelCount() * MatrixChartRenderer.ROW_WIDTH;
+        return rowWidth
                 + (dataset.columnTuples().size() + (dataset.matrixOptions().rowTotals() ? 1 : 0))
-                        * APPROXIMATE_COLUMN_WIDTH
+                        * dataset.matrixOptions().columnWidth()
                 + 18;
     }
 

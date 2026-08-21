@@ -84,7 +84,8 @@ public final class AggregateQueryBuilder {
         sql.append("\nORDER BY ").append(String.join(", ", orderBy));
         sql.append(";");
         return new AggregateQuery(sql.toString(), rows.stream().map(QueryDimension::alias).toList(),
-                columns.stream().map(QueryDimension::alias).toList(), aggregations.get(0).alias(), strategy);
+                columns.stream().map(QueryDimension::alias).toList(), aggregations.get(0).alias(),
+                strategy, aggregations);
     }
 
     public static QueryMeasure resultMeasure(ResultSetSnapshot snapshot, int index) {
@@ -117,12 +118,17 @@ public final class AggregateQueryBuilder {
 
     public static String distinct(String sourceSql, String fieldName) {
         return "SELECT DISTINCT " + quote(fieldName) + "\nFROM (\n"
-                + stripTerminator(sourceSql) + "\n) rv_source\nORDER BY 1;";
+                + DBeaverSqlDialectService.normalizedSingleStatement(sourceSql)
+                + "\n) rv_source\nORDER BY 1;";
     }
 
     private static List<String> predicates(List<SlicerDefinition> slicers) {
         List<String> result = new ArrayList<>();
         for (SlicerDefinition slicer : slicers) {
+            if (!slicer.isCategorySelection()) {
+                result.add(predicate(slicer));
+                continue;
+            }
             List<String> values = slicer.selectedValues().stream()
                     .filter(value -> !value.sqlNull())
                     .map(com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerValue::sqlLiteral)
@@ -137,6 +143,37 @@ public final class AggregateQueryBuilder {
         return result.stream().filter(value -> !value.isBlank()).toList();
     }
 
+    private static String predicate(SlicerDefinition slicer) {
+        String field = quote(slicer.fieldName());
+        String first = literal(slicer.firstValue());
+        String second = literal(slicer.secondValue());
+        return switch (slicer.operator()) {
+            case EQUALS -> field + " = " + first;
+            case NOT_EQUALS -> field + " <> " + first;
+            case GREATER_THAN -> field + " > " + first;
+            case GREATER_THAN_OR_EQUAL -> field + " >= " + first;
+            case LESS_THAN -> field + " < " + first;
+            case LESS_THAN_OR_EQUAL -> field + " <= " + first;
+            case BETWEEN -> field + " BETWEEN " + first + " AND " + second;
+            case NOT_BETWEEN -> field + " NOT BETWEEN " + first + " AND " + second;
+            case BEFORE -> field + " < " + first;
+            case AFTER -> field + " > " + first;
+            case ON_OR_BEFORE -> field + " <= " + first;
+            case ON_OR_AFTER -> field + " >= " + first;
+            case IS_NULL -> field + " IS NULL";
+            case IS_NOT_NULL -> field + " IS NOT NULL";
+            case THIS_MONTH, THIS_QUARTER, THIS_YEAR, LAST_N_DAYS, LAST_N_MONTHS, LAST_N_YEARS ->
+                    throw new IllegalArgumentException("Relative date slicers are local-only; apply an absolute date filter before executing Source Query.");
+            case IN -> "";
+        };
+    }
+
+    private static String literal(String value) {
+        if (value == null || value.isBlank()) return "NULL";
+        try { new java.math.BigDecimal(value); return value; }
+        catch (NumberFormatException ignored) { return "'" + value.replace("'", "''") + "'"; }
+    }
+
     public static QueryDimension resultDimension(ResultSetSnapshot snapshot, int index) {
         String name = snapshot.columns().get(index).displayName();
         return new QueryDimension(name, quote(name));
@@ -144,11 +181,6 @@ public final class AggregateQueryBuilder {
 
     public static QueryDimension customDimension(CustomSqlDimension dimension) {
         return new QueryDimension(dimension.name(), dimension.expression());
-    }
-
-    private static String stripTerminator(String sql) {
-        String value = sql.trim();
-        return value.endsWith(";") ? value.substring(0, value.length() - 1) : value;
     }
 
     private static String quote(String identifier) {

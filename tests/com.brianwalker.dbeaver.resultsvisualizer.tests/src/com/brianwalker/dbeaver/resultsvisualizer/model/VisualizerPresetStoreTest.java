@@ -15,6 +15,10 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationConf
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerDefinition;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerValue;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerOperator;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyLevel;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchySelection;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDisplayOptions;
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldDefinition;
 import java.sql.Types;
 import java.time.Instant;
@@ -99,6 +103,64 @@ public class VisualizerPresetStoreTest {
         prefs.put("preset.v2.corrupt", "not-base64"); prefs.flush();
 
         assertEquals(List.of("Q1/West", "Q1:West"), store.listFor(snapshot).stream().map(VisualizerPreset::name).toList());
+    }
+
+    @Test
+    public void roundTripsTypedSlicersAndDateHierarchySelections() {
+        Preferences prefs = InstanceScope.INSTANCE.getNode(
+                "com.brianwalker.dbeaver.resultsvisualizer.tests." + UUID.randomUUID()).node("presets");
+        VisualizerPresetStore store = new VisualizerPresetStore(prefs);
+        ResultSetSnapshot snapshot = snapshot("Sales", "InvoiceDate", "Revenue");
+        VisualizationConfiguration config = new VisualizationConfiguration(
+                ChartType.BAR, List.of(0), 1, List.of(), Aggregation.SUM, null);
+        List<SlicerDefinition> slicers = List.of(
+                SlicerDefinition.predicate("Revenue", SlicerOperator.BETWEEN, "10.25", "99.50"),
+                SlicerDefinition.predicate("InvoiceDate", SlicerOperator.LAST_N_DAYS, "30", ""));
+        List<DateHierarchySelection> hierarchies = List.of(
+                new DateHierarchySelection(0, DateHierarchyLevel.MONTH));
+
+        store.save("typed filters", snapshot, config, MatrixDisplayOptions.DEFAULT, List.of(1),
+                slicers, hierarchies, List.of(), List.of());
+
+        VisualizerPreset restored = store.load("typed filters", snapshot).orElseThrow();
+        assertEquals(slicers, restored.slicers());
+        assertEquals(hierarchies, restored.dateHierarchies());
+    }
+
+    @Test
+    public void roundTripsMultipleValuesAndChartDisplayOptions() {
+        Preferences prefs = InstanceScope.INSTANCE.getNode(
+                "com.brianwalker.dbeaver.resultsvisualizer.tests." + UUID.randomUUID()).node("presets");
+        VisualizerPresetStore store = new VisualizerPresetStore(prefs);
+        ResultSetSnapshot snapshot = snapshot("Sales", "Category", "Revenue", "Quantity");
+        VisualizationConfiguration config = new VisualizationConfiguration(ChartType.COMBO,
+                List.of(0), 1, List.of(), Aggregation.SUM, null)
+                .withValues(List.of(1, 2))
+                .withDisplayOptions(new ChartDisplayOptions(false, false, true,
+                        ChartDisplayOptions.LegendPosition.RIGHT,
+                        ChartDisplayOptions.PieLabelMode.VALUE, 5));
+
+        store.save("multi values", snapshot, config, MatrixDisplayOptions.DEFAULT, List.of(), List.of(), List.of(), List.of());
+
+        assertEquals(config, store.load("multi values", snapshot).orElseThrow().toConfiguration());
+    }
+
+    @Test
+    public void roundTripsExpandedMatrixOptions() {
+        Preferences prefs = InstanceScope.INSTANCE.getNode(
+                "com.brianwalker.dbeaver.resultsvisualizer.tests." + UUID.randomUUID()).node("presets");
+        VisualizerPresetStore store = new VisualizerPresetStore(prefs);
+        ResultSetSnapshot snapshot = snapshot("Matrix", "Region", "Category", "Revenue");
+        VisualizationConfiguration config = new VisualizationConfiguration(ChartType.MATRIX,
+                List.of(0, 1), 2, List.of(), Aggregation.SUM, null);
+        MatrixDisplayOptions options = new MatrixDisplayOptions(true, true, true, true,
+                MatrixDisplayOptions.Layout.TABULAR, 3, true, true,
+                MatrixDisplayOptions.ConditionalFormat.COLOR_SCALE, false, 25, 144,
+                java.util.Set.of(0), java.util.Set.of("North"));
+
+        store.save("matrix options", snapshot, config, options, List.of(2), List.of(), List.of(), List.of());
+
+        assertEquals(options, store.load("matrix options", snapshot).orElseThrow().matrixOptions());
     }
 
     private static ResultSetSnapshot snapshot(String sourceName, String... columnNames) {

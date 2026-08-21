@@ -2,7 +2,58 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
-## Unreleased
+## 1.2.0 — 2026-08-20
+
+- Added 100% stacked bar and area renderers, an optional independently scaled
+  secondary Y-axis for combo line series, and optional bubble sizing from the
+  second selected Value. Preset format v6 persists the secondary-axis option
+  while retaining v2-v5 read compatibility.
+- Completed the four-phase visualization expansion described below and
+  hardened the release build by pinning GitHub Actions to immutable commits
+  and verifying the Maven wrapper distribution with SHA-256.
+
+- Expanded Matrix/Pivot into a persisted report-style configuration: stepped
+  and tabular layouts, hierarchy collapse/expand, level-specific subtotals,
+  row/column/grand totals, Top-N rows, adjustable column width, decimal and
+  percentage formats, thousands separators, heat color scales, and data bars.
+  The 2,500-cell guard now reports source points versus logical cells and
+  recommends slicers or Top-N. Preset format v5 stores the complete Matrix
+  state while continuing to read v2-v4 entries; sessions and full-content
+  image/SVG/PDF export reuse the same state and sizing model.
+- Added shared multi-measure chart data plumbing and compact `Values…` and
+  `Options…` dialogs. Bar, line, area, scatter, pie/donut, heatmap, and Matrix
+  rendering now consume a consistent measure/series dataset rather than
+  renderer-specific field handling. Options provide data labels, line markers,
+  legend placement, pie label content, and Top-N + Other grouping; all are
+  theme-aware and persist in the session and presets (preset format v4, with
+  v2/v3 read compatibility).
+- Added type-aware compact slicers. Numeric fields now support comparison,
+  range, and null operators; date/time fields add absolute and relative
+  calendar filters while preserving the existing category slicer's SQL-NULL
+  versus literal `(null)` distinction.
+- DATE/DATETIME dimensions now offer local Year, Quarter, Month, and Day
+  levels in chart and Matrix wells, with Date Level drill up/down actions.
+  Derived hierarchy values never modify the source result. Source Query keeps
+  original date columns and clearly reports the local-only fallback when a
+  safe datasource-specific hierarchy translation is not available.
+- Presets and per-result sessions now retain typed slicers and date-hierarchy
+  selections. Preset format v3 remains able to read existing v2 presets.
+- Stabilized result-controller binding: global SWT focus/selection events only
+  switch sessions when the event originates inside the DBeaver result control
+  DBeaver reports as selected. Builder controls no longer rediscover another
+  result tab. Result load/change bursts are coalesced, snapshots are cached,
+  and identical model notifications no longer redraw the visualization.
+- Source Query state is fully session-scoped, including the exact
+  pre-aggregate configuration. Every asynchronous execution now carries its
+  launching session, request id, source generation, and snapshot timestamp;
+  stale/late results are ignored, and cancellation discards partial rows.
+- Source SQL wrapping now lexes line/block comments and quoted content,
+  removes one legitimate trailing semicolon, and rejects stacked statements.
+  Added SQLite-style `strftime`/grouping/comment regression coverage.
+- Source aggregate metadata now preserves correct local semantics: COUNT is
+  additive, MIN/MAX retain their operations, and dimension changes that would
+  corrupt AVG or COUNT DISTINCT require a new Source Query instead of silently
+  displaying an incorrect value.
 
 ## 1.1.2 — 2026-08-15
 

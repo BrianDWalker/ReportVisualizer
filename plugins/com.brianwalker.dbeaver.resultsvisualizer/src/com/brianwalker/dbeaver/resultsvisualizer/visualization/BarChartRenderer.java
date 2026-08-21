@@ -43,7 +43,7 @@ public final class BarChartRenderer implements ChartRenderer {
                 int height = Math.max(1, Math.abs(baseline - valueY));
                 int width = Math.max(1, barWidth - 3);
                 graphics.fillRoundRectangle(x, top, width, height, 7, 7);
-                if (ChartDrawing.shouldDrawValueLabel(categoryIndex, categories.size())) {
+                if (dataset.displayOptions().dataLabels() && ChartDrawing.shouldDrawValueLabel(categoryIndex, categories.size())) {
                     ChartDrawing.drawValueLabel(graphics, plot, x + width / 2, top, point.y());
                 }
             }

@@ -276,10 +276,14 @@ without changing the immutable-snapshot rendering model:
   `AggregateQueryBuilder`, `AggregateQuery`): source-query aggregation chooses
   between an optimized direct `GROUP BY` rewrite of the original `FROM` clause
   and a derived-table fallback (`SELECT ... FROM (original query) rv_source`).
-  The decision walks the SQL text tracking parenthesis depth and single-quoted
-  string literals to find a genuinely top-level `FROM`/disqualifying keyword,
-  rather than relying on a plain regex split, so CTEs, joins, set operations,
-  and structurally ambiguous queries fall back safely. Identifier quoting is
+  The decision walks normalized single-statement SQL while tracking
+  parenthesis depth and quoted strings/identifiers. The normalizer removes
+  `--` and `/* ... */` comments without treating comment-like text inside
+  quotes as syntax, removes one legitimate trailing semicolon, and rejects
+  stacked statements before a derived table can be produced. This finds a
+  genuinely top-level `FROM`/disqualifying keyword rather than relying on a
+  plain regex split, so CTEs, joins, set operations, and structurally ambiguous
+  queries fall back safely. Identifier quoting is
   derived from `SQLDialect.getIdentifierQuoteStrings()` on the active
   datasource's dialect — the same declarative quote-pair table DBeaver's own
   dialect implementations expose — via `DBeaverSqlDialectService.QuoteStyle`,
@@ -301,12 +305,74 @@ without changing the immutable-snapshot rendering model:
     `getIdentifierQuoteStrings()` directly instead of round-tripping through a
     quoting-necessity heuristic, which avoids this failure mode entirely.
 
+- **Phase 1 runtime hardening**: controller discovery is gated by the SWT event
+  origin: a Focus/Selection event can switch the view only when its control is
+  a descendant of the DBeaver result controller reported as selected. Events
+  from the visualizer itself are ignored. Model load/change notifications
+  refresh only the already-bound controller, are coalesced into one UI task,
+  and suppress READY/redraw work when the copied data is unchanged. Source
+  Query jobs use `AggregateExecutionRequest` to carry session identity,
+  monotonic request id, source generation, and source capture timestamp.
+  Completions are accepted only by the matching pending request in the
+  launching `VisualizerSession`; cancellation publishes no snapshot. The
+  session also owns its pre-aggregate configuration. Aggregate output metadata
+  selects SUM for additive COUNT outputs and retains SUM/MIN/MAX, while AVG and
+  COUNT DISTINCT are restricted to their original dimensions unless rerun at
+  the requested grouping.
+
 - **Saved visualization presets** (`VisualizerPreset`, `VisualizerPresetStore`):
   a named chart/matrix layout is persisted via Eclipse `InstanceScope`
   preferences, keyed by a source signature (result source name plus column
   name/type shape) rather than any live DBeaver object reference, so loading a
   preset against a changed/incompatible schema is a safe no-op rather than a
   silent misapplication of stale field indexes.
+
+- **Type-aware slicers and local date intelligence** (`SlicerDefinition`,
+  `SnapshotSlicer`, `DateHierarchyProjector`): category slicers retain their
+  typed `SlicerValue` matching, including SQL NULL versus the literal text
+  `(null)`. Numeric slicers compare `BigDecimal` values; date/datetime slicers
+  compare `LocalDate` values and support absolute ranges plus relative calendar
+  periods. Date dimensions can be projected locally as Year, Quarter, Month,
+  or Day labels for chart and Matrix dimensions. The projector builds a new
+  immutable snapshot, so neither DBeaver's result nor the cached source
+  snapshot is changed. Source Query does not invent database-specific date
+  functions: when a hierarchy is selected it leaves the source date column
+  intact and tells the user that database-side hierarchy grouping is not
+  available for the active datasource.
+
+- **Preset/session Phase 2 state**: preset format v3 serializes typed slicer
+  operators and date-hierarchy selections while retaining v2 read support.
+  `VisualizerSession` owns the same hierarchy list per stable result identity,
+  so changing Results tabs cannot leak filters or date level selections.
+
+- **Phase 3 shared chart state** (`VisualizationConfiguration`,
+  `ChartDisplayOptions`, `ChartDataBuilder`): a configuration now owns an
+  ordered list of selected value fields in addition to its primary compatibility
+  field. The builder turns each selected measure into a stable series dimension,
+  allowing renderers to support multiple measures without separate per-chart
+  data paths. Compact `Values…` and `Options…` dialogs keep advanced controls
+  out of the builder: data labels, markers, legend placement, pie label mode,
+  and Top-N are carried with the immutable dataset. Preset format v4 stores the
+  new state and retains v2/v3 read support.
+
+- **Phase 4 Matrix state** (`MatrixDisplayOptions`, `MatrixChartRenderer`,
+  `MatrixCanvasMetrics`): ordered multi-field wells continue to produce one
+  shared `ChartDataset`, while a richer immutable options record controls
+  stepped/tabular hierarchy layout, collapsed row paths, subtotal levels,
+  totals, Top-N, column sizing, numeric formatting, color scales, and data
+  bars. The same record is held per result session and serialized by preset
+  format v5 (with v2-v4 compatibility). Rendering and export both use
+  `MatrixCanvasMetrics`, so PNG/JPEG/SVG/PDF and clipboard capture retain the
+  full logical Matrix instead of the visible scroll viewport. The renderer
+  caps materialization at 2,500 logical value cells after collapse/Top-N and
+  reports source-point and logical-cell counts when the cap is exceeded.
+
+- **Phase 5 chart/release closure**: the registry includes 100% stacked bar and
+  area variants. Combo charts can independently scale their line series on a
+  secondary Y-axis, while Bubble uses the second selected Value as point size.
+  Preset format v6 stores the secondary-axis choice and retains v2-v5 read
+  compatibility. Release automation pins every external Action to an immutable
+  commit and the Maven wrapper verifies its distribution SHA-256.
 
 Build reproducibility: DBeaver does not publish a version-pinned public p2
 repository for the CE product (only the floating
@@ -334,14 +400,12 @@ DBeaver version even though the update site itself floats.
   asymmetric quote pairs, embedded-quote escaping, and fallback behavior when
   no dialect/quote-strings table is available, plus end-to-end direct-rewrite
   and derived-table SQL generation with a non-default quote style installed.
-- **No live DBeaver runtime validation has been performed in this development
-  environment.** There is no DBeaver desktop installation or live datasource
-  connection available here, so the large-row and quoting fixes above have
-  only been exercised through synthetic in-memory data and unit tests — not
-  against an actual running DBeaver instance, a real JDBC datasource, or a
-  live SQL Server/MySQL/PostgreSQL connection. Anyone installing this update
-  site into a real DBeaver instance should still perform the following manual
-  checks before relying on this build broadly:
+- **Live DBeaver Community validation**: the 1.2.0 candidate was installed into
+  an isolated writable DBeaver Community 26.1.4 copy and workspace. Equinox
+  resolved and activated the bundle, the toolbar/view/empty-state paths loaded,
+  and a real SQLite sample query produced 200 rows and a rendered aggregate
+  chart with the expected partial-row warning. SQL Server/MySQL/PostgreSQL and
+  other DBeaver desktop editions remain follow-up compatibility checks:
   1. Connect to a SQL Server (or other bracket-quoting) datasource, open a
      result set with a column name that needs quoting (e.g. containing a
      space or a reserved word), enable an aggregation/Source Query grouping
@@ -364,4 +428,3 @@ DBeaver version even though the update site itself floats.
      callback in the DBeaver API surface used here, so this is a bounded-cache
      mitigation rather than a deterministic guarantee, and is worth confirming
      under real, sustained use.
-

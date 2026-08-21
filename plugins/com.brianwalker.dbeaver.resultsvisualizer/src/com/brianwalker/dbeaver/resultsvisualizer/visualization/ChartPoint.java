@@ -9,7 +9,7 @@ import java.util.List;
 
 /** Portable point prepared for chart rendering, optionally assigned to a series. */
 public record ChartPoint(String label, Double numericX, double y, String series,
-        List<String> rowLevels, List<String> columnLevels) {
+        List<String> rowLevels, List<String> columnLevels, Double size) {
     public ChartPoint {
         label = Objects.requireNonNullElse(label, "");
         series = Objects.requireNonNullElse(series, "");
@@ -18,9 +18,14 @@ public record ChartPoint(String label, Double numericX, double y, String series,
                 ? series.isBlank() ? List.of() : List.of(series) : columnLevels);
     }
 
+    public ChartPoint(String label, Double numericX, double y, String series,
+            List<String> rowLevels, List<String> columnLevels) {
+        this(label, numericX, y, series, rowLevels, columnLevels, null);
+    }
+
     public ChartPoint(String label, Double numericX, double y, String series) {
         this(label, numericX, y, series, List.of(label),
-                series == null || series.isBlank() ? List.of() : List.of(series));
+                series == null || series.isBlank() ? List.of() : List.of(series), null);
     }
 
     public ChartPoint(String label, Double numericX, double y) {

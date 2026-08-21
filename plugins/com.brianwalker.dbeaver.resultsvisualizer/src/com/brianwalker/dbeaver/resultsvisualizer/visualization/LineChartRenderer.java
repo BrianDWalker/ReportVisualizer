@@ -40,11 +40,13 @@ public final class LineChartRenderer implements ChartRenderer {
                 int x = ChartDrawing.categoryX(plot, index, categories.size());
                 int y = ChartDrawing.y(plot, point.y(), yRange);
                 if (hasPrevious) graphics.drawLine(previousX, previousY, x, y);
-                graphics.fillOval(x - 4, y - 4, 9, 9);
-                graphics.setBackground(graphics.theme().background());
-                graphics.fillOval(x - 2, y - 2, 5, 5);
-                graphics.setBackground(color);
-                if (ChartDrawing.shouldDrawValueLabel(index, categories.size())) {
+                if (dataset.displayOptions().markers()) {
+                    graphics.fillOval(x - 4, y - 4, 9, 9);
+                    graphics.setBackground(graphics.theme().background());
+                    graphics.fillOval(x - 2, y - 2, 5, 5);
+                    graphics.setBackground(color);
+                }
+                if (dataset.displayOptions().dataLabels() && ChartDrawing.shouldDrawValueLabel(index, categories.size())) {
                     ChartDrawing.drawValueLabel(graphics, plot, x, y, point.y());
                     graphics.setForeground(color);
                 }

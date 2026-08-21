@@ -56,6 +56,22 @@ public class ChartRendererSvgExportTest {
     }
 
     @Test
+    public void comboSecondaryAxisRendersItsOwnScaleAndTitle() {
+        ChartDataset dataset = new ChartDataset("Month", "Revenue", List.of(
+                new ChartPoint("Jan", null, 1000, "Revenue"),
+                new ChartPoint("Feb", null, 2000, "Revenue"),
+                new ChartPoint("Jan", null, 10, "Margin %"),
+                new ChartPoint("Feb", null, 20, "Margin %"))).withDisplayOptions(
+                        ChartDisplayOptions.DEFAULT.withSecondaryAxis(true));
+        SvgChartGraphics svg = new SvgChartGraphics(500, 300, ChartTheme.light());
+
+        new ComboChartRenderer().render(svg,
+                new org.eclipse.swt.graphics.Rectangle(0, 0, 500, 300), dataset);
+
+        assertTrue(svg.toSvg().contains("Line series"));
+    }
+
+    @Test
     public void fillArcHandlesFullCircleWithoutDegenerateArc() {
         SvgChartGraphics svg = new SvgChartGraphics(100, 100, ChartTheme.light());
         svg.fillArc(10, 10, 80, 80, 0, 360);
