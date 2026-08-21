@@ -18,6 +18,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 public class ChartDataBuilderTest {
@@ -32,6 +33,26 @@ public class ChartDataBuilderTest {
         assertEquals(5, dataset.points().size());
         assertTrue(dataset.seriesNames().stream().anyMatch(name -> name.contains("revenue")));
         assertTrue(dataset.seriesNames().stream().anyMatch(name -> name.contains("quantity")));
+    }
+
+    @Test public void aggregatesEachSelectedMeasureIndependently() {
+        ResultSetSnapshot snapshot = new ResultSetSnapshot("mixed-aggregations", List.of(
+                column(0, "category", Types.VARCHAR, "VARCHAR", NormalizedDataType.STRING),
+                column(1, "total", Types.DECIMAL, "DECIMAL", NormalizedDataType.DECIMAL),
+                column(2, "invoice_id", Types.INTEGER, "INTEGER", NormalizedDataType.INTEGER)), List.of(
+                new ResultRow(0, List.of("A", new BigDecimal("10"), 1)),
+                new ResultRow(1, List.of("A", new BigDecimal("20"), 1)),
+                new ResultRow(2, List.of("A", new BigDecimal("5"), 2))), 3, false, Instant.EPOCH);
+        VisualizationConfiguration configuration = new VisualizationConfiguration(ChartType.BAR,
+                List.of(0), 1, List.of(1, 2), List.of(), Aggregation.SUM, null,
+                ChartDisplayOptions.DEFAULT, Map.of(2, Aggregation.COUNT_DISTINCT));
+
+        ChartDataset dataset = ChartDataBuilder.build(snapshot, configuration);
+
+        assertEquals(35.0, dataset.pointsForSeries("total").get(0).y(), 0.0001);
+        assertEquals(2.0, dataset.pointsForSeries("invoice_id").get(0).y(), 0.0001);
+        assertTrue(dataset.yAxisTitle().contains("total"));
+        assertTrue(dataset.yAxisTitle().contains("invoice_id"));
     }
 
     @Test public void usesSecondBubbleMeasureForPointSize() {

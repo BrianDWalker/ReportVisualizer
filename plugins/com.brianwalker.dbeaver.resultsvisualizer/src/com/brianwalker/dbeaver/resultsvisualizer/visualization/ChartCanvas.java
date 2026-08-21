@@ -25,6 +25,9 @@ public final class ChartCanvas extends Canvas {
         this.registry = registry;
         addPaintListener(event -> paintChart(event.gc));
         addListener(SWT.Resize, event -> configureScrolling());
+        addListener(SWT.MouseMove, event -> setToolTipText(ChartHover.textAt(
+                chartType, dataset, getClientArea(), event.x, event.y)));
+        addListener(SWT.MouseExit, event -> setToolTipText(null));
         getHorizontalBar().addListener(SWT.Selection, event -> redraw());
         getVerticalBar().addListener(SWT.Selection, event -> redraw());
     }

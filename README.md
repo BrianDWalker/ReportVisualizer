@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Current release line:** `1.2.2`
+**Current release line:** `1.2.3`
 
 ## Install
 
@@ -129,6 +129,10 @@ Release downloads and checksums are available on the
   ordered sorts, and referenced formulas). Load and Delete present a selectable
   list of compatible saved presets; exact-name, versioned storage prevents
   sanitized-name collisions and ignores corrupt entries safely
+- When multiple values are selected, **Aggs…** sets SUM, COUNT DISTINCT, or
+  another compatible aggregation independently for each measure
+- Hover any non-matrix chart to see the category/series values; stacked charts
+  expose each stack component and scatter/bubble charts expose the nearest point
 - Visualization export: **Save PNG**, **Save JPEG**, **Save SVG**, **Save PDF**,
   and **Copy Image** (to the system clipboard) for the currently rendered
   chart or matrix, sharing the same on-screen rendering pipeline. Copy Image
