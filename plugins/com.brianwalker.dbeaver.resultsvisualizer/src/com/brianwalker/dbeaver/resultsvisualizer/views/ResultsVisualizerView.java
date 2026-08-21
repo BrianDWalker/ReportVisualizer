@@ -105,6 +105,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private Label calculatedFieldStatus;
     private Button slicersButton;
     private Button valuesButton;
+    private Button valueAggregationsButton;
     private Button hierarchyButton;
     private Button sourceQueryButton;
     private Button sortButton;
@@ -525,7 +526,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private Combo createValuesWell(Composite parent) {
         Composite card = new Composite(parent, SWT.NONE);
         card.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout layout = new GridLayout(3, false);
+        GridLayout layout = new GridLayout(4, false);
         layout.marginWidth = 0;
         layout.marginHeight = 0;
         layout.horizontalSpacing = 3;
@@ -541,6 +542,10 @@ public final class ResultsVisualizerView extends ViewPart {
         valuesButton.setText("Values…");
         valuesButton.setToolTipText("Choose one or more chart measures");
         valuesButton.addListener(SWT.Selection, event -> openValuesDialog());
+        valueAggregationsButton = new Button(card, SWT.PUSH);
+        valueAggregationsButton.setText("Aggs…");
+        valueAggregationsButton.setToolTipText("Choose an aggregation for each selected value");
+        valueAggregationsButton.addListener(SWT.Selection, event -> openValueAggregationsDialog());
         return well;
     }
 
@@ -1039,10 +1044,12 @@ public final class ResultsVisualizerView extends ViewPart {
         availableAggregations = Aggregation.compatibleWith(type);
         aggregationCombo.removeAll();
         for (Aggregation aggregation : availableAggregations) aggregationCombo.add(aggregation.toString());
-        if (!availableAggregations.contains(configuration.aggregation())) {
-            configuration = configuration.withAggregation(Aggregation.COUNT);
+        Aggregation selectedAggregation = configuration.aggregationFor(columnIndex);
+        if (!availableAggregations.contains(selectedAggregation)) {
+            configuration = configuration.withValueAggregation(columnIndex, Aggregation.COUNT);
+            selectedAggregation = Aggregation.COUNT;
         }
-        int selection = availableAggregations.indexOf(configuration.aggregation());
+        int selection = availableAggregations.indexOf(selectedAggregation);
         aggregationCombo.select(selection < 0 ? 0 : selection);
         updateValuesButton();
     }
@@ -1051,6 +1058,9 @@ public final class ResultsVisualizerView extends ViewPart {
         if (valuesButton == null || valuesButton.isDisposed() || configuration == null) return;
         int count = configuration.valueColumnIndexes().size();
         valuesButton.setText(count <= 1 ? "Values…" : "Values… (" + count + ")");
+        if (valueAggregationsButton != null && !valueAggregationsButton.isDisposed()) {
+            valueAggregationsButton.setEnabled(count > 0);
+        }
         valuesButton.getParent().layout(true, true);
     }
 
@@ -1094,6 +1104,18 @@ public final class ResultsVisualizerView extends ViewPart {
         matrixValues = new ArrayList<>(dialog.selected().stream()
                 .map(index -> DimensionChoice.result(snapshot, index)).toList());
         populateControls(snapshot);
+        updateChart();
+    }
+
+    private void openValueAggregationsDialog() {
+        if (snapshot == null || configuration == null || configuration.valueColumnIndexes().isEmpty()) return;
+        ValueAggregationsDialog dialog = new ValueAggregationsDialog(content.getShell(), snapshot, configuration);
+        if (dialog.open() != Window.OK) return;
+        VisualizationConfiguration updated = configuration;
+        for (var entry : dialog.aggregations().entrySet()) {
+            updated = updated.withValueAggregation(entry.getKey(), entry.getValue());
+        }
+        configuration = updated;
         updateChart();
     }
 

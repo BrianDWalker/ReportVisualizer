@@ -34,7 +34,7 @@ public final class VisualizerPresetStore {
         if (snapshot == null || configuration == null) throw new IllegalArgumentException("Snapshot and configuration are required.");
         VisualizerPreset preset = new VisualizerPreset(presetName, VisualizerPreset.sourceSignature(snapshot), configuration.chartType(),
                 configuration.xColumnIndexes(), configuration.valueColumnIndex(), configuration.seriesColumnIndexes(), configuration.aggregation(),
-                configuration.yAxisMaximum(), matrixOptions, configuration.valueColumnIndexes(), configuration.displayOptions(), matrixValues, slicers, dateHierarchies, sortRules, calculatedFields);
+                configuration.yAxisMaximum(), matrixOptions, configuration.valueColumnIndexes(), configuration.displayOptions(), matrixValues, slicers, dateHierarchies, sortRules, calculatedFields, configuration.valueAggregations());
         try { root.put(key(presetName), preset.serialize()); root.flush(); }
         catch (BackingStoreException error) { throw new IllegalStateException("Unable to save preset.", error); }
     }

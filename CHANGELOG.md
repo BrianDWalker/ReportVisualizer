@@ -2,6 +2,15 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.3 — 2026-08-20
+
+- Added **Aggs…** for per-value local aggregation when multiple chart measures
+  are selected. Presets preserve each measure's aggregation and earlier presets
+  remain compatible with the shared aggregation default.
+- Added hover value tooltips for every non-matrix chart type, including each
+  stacked-bar component, combo series, nearby scatter/bubble point, and pie or
+  donut slice. Hover remains intentionally unavailable for Matrix/Pivot.
+
 ## 1.2.2 — 2026-08-20
 
 - Fixed Date Level projection for DATE/DATETIME columns whose JDBC driver returns

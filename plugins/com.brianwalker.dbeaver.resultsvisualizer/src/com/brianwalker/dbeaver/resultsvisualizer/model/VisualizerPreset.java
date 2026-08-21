@@ -14,8 +14,9 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
         List<Integer> valueColumnIndexes, ChartDisplayOptions displayOptions,
         List<Integer> matrixValueColumnIndexes, List<SlicerDefinition> slicers,
         List<DateHierarchySelection> dateHierarchies, List<SortRule> sortRules,
-        List<CalculatedFieldDefinition> calculatedFields) {
-    private static final int FORMAT_VERSION = 6;
+        List<CalculatedFieldDefinition> calculatedFields,
+        Map<Integer, Aggregation> valueAggregations) {
+    private static final int FORMAT_VERSION = 7;
 
     public VisualizerPreset {
         name = Objects.requireNonNullElse(name, "").trim(); sourceSignature = Objects.requireNonNullElse(sourceSignature, "");
@@ -26,6 +27,28 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
         displayOptions = Objects.requireNonNullElse(displayOptions, ChartDisplayOptions.DEFAULT); matrixValueColumnIndexes = indexes(matrixValueColumnIndexes);
         slicers = List.copyOf(Objects.requireNonNullElse(slicers, List.of())); dateHierarchies = List.copyOf(Objects.requireNonNullElse(dateHierarchies, List.of())); sortRules = List.copyOf(Objects.requireNonNullElse(sortRules, List.of()));
         calculatedFields = List.copyOf(Objects.requireNonNullElse(calculatedFields, List.of()));
+        Map<Integer, Aggregation> selectedAggregations = new LinkedHashMap<>();
+        if (valueAggregations != null) for (Map.Entry<Integer, Aggregation> entry : valueAggregations.entrySet()) {
+            Integer index = entry.getKey();
+            Aggregation value = entry.getValue();
+            if (index != null && value != null && valueColumnIndexes.contains(index)) {
+                selectedAggregations.put(index, value);
+            }
+        }
+        valueAggregations = Map.copyOf(selectedAggregations);
+    }
+
+    /** Existing callers and presets without per-value aggregations retain their shared default. */
+    public VisualizerPreset(String name, String sourceSignature, ChartType chartType,
+            List<Integer> xColumnIndexes, int valueColumnIndex, List<Integer> seriesColumnIndexes,
+            Aggregation aggregation, Double yAxisMaximum, MatrixDisplayOptions matrixOptions,
+            List<Integer> valueColumnIndexes, ChartDisplayOptions displayOptions,
+            List<Integer> matrixValueColumnIndexes, List<SlicerDefinition> slicers,
+            List<DateHierarchySelection> dateHierarchies, List<SortRule> sortRules,
+            List<CalculatedFieldDefinition> calculatedFields) {
+        this(name, sourceSignature, chartType, xColumnIndexes, valueColumnIndex, seriesColumnIndexes,
+                aggregation, yAxisMaximum, matrixOptions, valueColumnIndexes, displayOptions,
+                matrixValueColumnIndexes, slicers, dateHierarchies, sortRules, calculatedFields, Map.of());
     }
 
     public static String sourceSignature(ResultSetSnapshot snapshot) {
@@ -33,7 +56,7 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
         for (ResultColumn column : snapshot.columns()) builder.append(column.displayName()).append(':').append(column.normalizedType().name()).append(';');
         return builder.toString();
     }
-    public VisualizationConfiguration toConfiguration() { return new VisualizationConfiguration(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes, seriesColumnIndexes, aggregation, yAxisMaximum, displayOptions); }
+    public VisualizationConfiguration toConfiguration() { return new VisualizationConfiguration(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes, seriesColumnIndexes, aggregation, yAxisMaximum, displayOptions, valueAggregations); }
     public boolean matches(ResultSetSnapshot snapshot) { return sourceSignature.equals(sourceSignature(snapshot)); }
 
     /** Versioned binary data avoids delimiter collisions in names, formulas, and slicer values. */
@@ -41,7 +64,7 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream(); DataOutputStream out = new DataOutputStream(bytes)) {
             out.writeInt(FORMAT_VERSION); text(out, name); text(out, sourceSignature); text(out, chartType.name()); ints(out, xColumnIndexes); out.writeInt(valueColumnIndex);
             ints(out, seriesColumnIndexes); text(out, aggregation.name()); out.writeBoolean(yAxisMaximum != null); if (yAxisMaximum != null) out.writeDouble(yAxisMaximum);
-            matrix(out, matrixOptions); ints(out, valueColumnIndexes); text(out, displayOptions.legendPosition().name()); text(out, displayOptions.pieLabelMode().name()); out.writeBoolean(displayOptions.dataLabels()); out.writeBoolean(displayOptions.markers()); out.writeInt(displayOptions.topN()); out.writeBoolean(displayOptions.secondaryAxis()); ints(out, matrixValueColumnIndexes);
+            matrix(out, matrixOptions); ints(out, valueColumnIndexes); aggregations(out, valueAggregations); text(out, displayOptions.legendPosition().name()); text(out, displayOptions.pieLabelMode().name()); out.writeBoolean(displayOptions.dataLabels()); out.writeBoolean(displayOptions.markers()); out.writeInt(displayOptions.topN()); out.writeBoolean(displayOptions.secondaryAxis()); ints(out, matrixValueColumnIndexes);
             out.writeInt(slicers.size()); for (SlicerDefinition slicer : slicers) { text(out, slicer.fieldName()); text(out, slicer.operator().name()); text(out, slicer.firstValue()); text(out, slicer.secondValue()); out.writeInt(slicer.selectedValues().size()); for (SlicerValue value : slicer.selectedValues()) slicer(out, value); }
             out.writeInt(dateHierarchies.size()); for (DateHierarchySelection selection : dateHierarchies) { out.writeInt(selection.fieldIndex()); text(out, selection.level().name()); }
             out.writeInt(sortRules.size()); for (SortRule rule : sortRules) { text(out, rule.fieldName()); text(out, rule.direction().name()); }
@@ -56,10 +79,20 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(Base64.getUrlDecoder().decode(serialized)))) {
             int version = in.readInt();
             if (version < 2 || version > FORMAT_VERSION) return null;
-            VisualizerPreset preset = new VisualizerPreset(read(in), read(in), ChartType.valueOf(read(in)), ints(in), in.readInt(), ints(in), Aggregation.valueOf(read(in)),
-                    in.readBoolean() ? in.readDouble() : null, matrix(in, version),
-                    version >= 4 ? ints(in) : List.of(), version >= 4 ? options(in, version) : ChartDisplayOptions.DEFAULT, ints(in), slicers(in, version),
-                    version >= 3 ? hierarchies(in) : List.of(), rules(in), fields(in));
+            String name = read(in), signature = read(in);
+            ChartType chartType = ChartType.valueOf(read(in));
+            List<Integer> xIndexes = ints(in);
+            int valueIndex = in.readInt();
+            List<Integer> seriesIndexes = ints(in);
+            Aggregation aggregation = Aggregation.valueOf(read(in));
+            Double maximum = in.readBoolean() ? in.readDouble() : null;
+            MatrixDisplayOptions matrix = matrix(in, version);
+            List<Integer> valueIndexes = version >= 4 ? ints(in) : List.of();
+            Map<Integer, Aggregation> valueAggregations = version >= 7 ? aggregations(in) : Map.of();
+            ChartDisplayOptions options = version >= 4 ? options(in, version) : ChartDisplayOptions.DEFAULT;
+            VisualizerPreset preset = new VisualizerPreset(name, signature, chartType, xIndexes, valueIndex,
+                    seriesIndexes, aggregation, maximum, matrix, valueIndexes, options, ints(in), slicers(in, version),
+                    version >= 3 ? hierarchies(in) : List.of(), rules(in), fields(in), valueAggregations);
             return in.available() == 0 ? preset : null;
         } catch (IllegalArgumentException | IOException error) { return null; }
     }
@@ -83,6 +116,8 @@ public record VisualizerPreset(String name, String sourceSignature, ChartType ch
     private static MatrixDisplayOptions matrix(DataInputStream in, int version) throws IOException { boolean rows = in.readBoolean(), columns = in.readBoolean(), subtotals = in.readBoolean(); if (version < 5) return new MatrixDisplayOptions(rows, columns, subtotals); boolean grand = in.readBoolean(); MatrixDisplayOptions.Layout layout = MatrixDisplayOptions.Layout.valueOf(read(in)); int decimals = in.readInt(); boolean percentage = in.readBoolean(), separators = in.readBoolean(); MatrixDisplayOptions.ConditionalFormat conditional = MatrixDisplayOptions.ConditionalFormat.valueOf(read(in)); boolean bars = in.readBoolean(); int topN = in.readInt(), width = in.readInt(); Set<Integer> levels = new LinkedHashSet<>(ints(in)); Set<String> collapsed = new LinkedHashSet<>(); for (int i = 0, size = count(in); i < size; i++) collapsed.add(read(in)); return new MatrixDisplayOptions(rows, columns, subtotals, grand, layout, decimals, percentage, separators, conditional, bars, topN, width, levels, collapsed); }
     private static List<SortRule> rules(DataInputStream in) throws IOException { List<SortRule> result = new ArrayList<>(); for (int i = 0, size = count(in); i < size; i++) result.add(new SortRule(read(in), SortRule.Direction.valueOf(read(in)))); return result; }
     private static List<CalculatedFieldDefinition> fields(DataInputStream in) throws IOException { List<CalculatedFieldDefinition> result = new ArrayList<>(); for (int i = 0, size = count(in); i < size; i++) result.add(new CalculatedFieldDefinition(read(in), read(in))); return result; }
+    private static void aggregations(DataOutputStream out, Map<Integer, Aggregation> values) throws IOException { out.writeInt(values.size()); for (Map.Entry<Integer, Aggregation> entry : values.entrySet()) { out.writeInt(entry.getKey()); text(out, entry.getValue().name()); } }
+    private static Map<Integer, Aggregation> aggregations(DataInputStream in) throws IOException { Map<Integer, Aggregation> result = new LinkedHashMap<>(); for (int i = 0, size = count(in); i < size; i++) result.put(in.readInt(), Aggregation.valueOf(read(in))); return Map.copyOf(result); }
     private static void slicer(DataOutputStream out, SlicerValue value) throws IOException { out.writeBoolean(value.sqlNull()); text(out, value.type().name()); text(out, value.rawValue() == null ? "" : value.rawValue().toString()); text(out, value.displayValue()); }
     private static SlicerValue slicer(DataInputStream in) throws IOException { boolean nullValue = in.readBoolean(); NormalizedDataType type = NormalizedDataType.valueOf(read(in)); String raw = read(in); String display = read(in); Object typed = switch (type) { case INTEGER, NUMBER -> new BigDecimal(raw); case BOOLEAN -> Boolean.valueOf(raw); default -> raw; }; return new SlicerValue(nullValue ? null : typed, display, type, nullValue); }
     private static void ints(DataOutputStream out, List<Integer> values) throws IOException { out.writeInt(values.size()); for (int value : values) out.writeInt(value); }

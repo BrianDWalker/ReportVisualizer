@@ -84,6 +84,7 @@ public final class ChartDataBuilder {
         configuration.seriesColumnIndexes().forEach(index -> validateIndex(index, snapshot.columns().size()));
 
         ResultColumn valueColumn = snapshot.columns().get(configuration.valueColumnIndex());
+        Aggregation aggregation = configuration.aggregationFor(configuration.valueColumnIndex());
         Map<GroupKey, Accumulator> groups = new LinkedHashMap<>();
         int requiredIndex = Math.max(configuration.valueColumnIndex(), configuration.xColumnIndexes().stream()
                 .mapToInt(Integer::intValue).max().orElse(-1));
@@ -97,8 +98,8 @@ public final class ChartDataBuilder {
             Object seriesValue = compositeValue(columnLevels);
             Object value = row.values().get(configuration.valueColumnIndex());
             Double numericValue = toFiniteDouble(value);
-            if (!configuration.aggregation().isCount() && numericValue == null) continue;
-            if (configuration.aggregation().isCount() && value == null) continue;
+            if (!aggregation.isCount() && numericValue == null) continue;
+            if (aggregation.isCount() && value == null) continue;
 
             GroupKey key = new GroupKey(formatLabel(xValue), toFiniteDouble(xValue),
                     configuration.seriesColumnIndexes().isEmpty() ? "" : formatLabel(seriesValue),
@@ -108,9 +109,9 @@ public final class ChartDataBuilder {
 
         List<ChartPoint> points = new ArrayList<>();
         groups.forEach((key, accumulator) -> points.add(new ChartPoint(
-                key.label(), key.numericX(), accumulator.value(configuration.aggregation()),
+                key.label(), key.numericX(), accumulator.value(aggregation),
                 key.series(), key.rowLevels(), key.columnLevels())));
-        String yTitle = configuration.aggregation() + "(" + valueColumn.displayName() + ")";
+        String yTitle = aggregation + "(" + valueColumn.displayName() + ")";
         return new ChartDataset(joinColumnNames(snapshot, configuration.xColumnIndexes()),
                 yTitle, points, configuration.yAxisMaximum(),
                 columnNames(snapshot, configuration.xColumnIndexes()),

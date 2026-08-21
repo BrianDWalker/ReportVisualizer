@@ -24,6 +24,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.eclipse.core.runtime.preferences.InstanceScope;
@@ -183,7 +184,7 @@ public class VisualizerPresetStoreTest {
                 ChartDisplayOptions.PieLabelMode.PERCENT, 12);
         VisualizationConfiguration saved = new VisualizationConfiguration(ChartType.MATRIX,
                 List.of(0, 1), 3, List.of(3, 4), List.of(2), Aggregation.SUM, 12_500.0,
-                chartOptions);
+                chartOptions, Map.of(4, Aggregation.COUNT_DISTINCT));
         MatrixDisplayOptions matrix = new MatrixDisplayOptions(true, false, true, true,
                 MatrixDisplayOptions.Layout.TABULAR, 2, false, true,
                 MatrixDisplayOptions.ConditionalFormat.COLOR_SCALE, true, 20, 132,
