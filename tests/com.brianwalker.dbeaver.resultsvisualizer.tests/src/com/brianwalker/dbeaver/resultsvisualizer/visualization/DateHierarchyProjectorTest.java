@@ -41,4 +41,13 @@ public class DateHierarchyProjectorTest {
                 Nullability.NOT_NULL)), List.of(new ResultRow(1, List.of(date))), 1, false, Instant.EPOCH);
         assertEquals(source, DateHierarchyProjector.apply(source, List.of()));
     }
+
+    @Test public void projectsJdbcTimestampStringsReturnedForDateColumns() {
+        String jdbcTimestamp = "2026-08-20 14:30:00.000";
+
+        assertEquals("2026", DateHierarchyProjector.label(jdbcTimestamp, DateHierarchyLevel.YEAR));
+        assertEquals("2026 Q3", DateHierarchyProjector.label(jdbcTimestamp, DateHierarchyLevel.QUARTER));
+        assertEquals("2026-08", DateHierarchyProjector.label(jdbcTimestamp, DateHierarchyLevel.MONTH));
+        assertEquals("2026-08-20", DateHierarchyProjector.label(jdbcTimestamp, DateHierarchyLevel.DAY));
+    }
 }
