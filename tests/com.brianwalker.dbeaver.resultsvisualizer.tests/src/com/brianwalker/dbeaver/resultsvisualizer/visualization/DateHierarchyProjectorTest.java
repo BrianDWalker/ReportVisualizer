@@ -28,4 +28,17 @@ public class DateHierarchyProjectorTest {
         assertEquals("2026 Q3", projected.rows().get(0).values().get(0));
         assertEquals(LocalDate.of(2026, 8, 20), source.rows().get(0).values().get(0));
     }
+
+    @Test public void projectsOriginalYearQuarterMonthAndDay() {
+        LocalDate date = LocalDate.of(2026, 8, 20);
+        assertEquals("2026", DateHierarchyProjector.label(date, DateHierarchyLevel.YEAR));
+        assertEquals("2026 Q3", DateHierarchyProjector.label(date, DateHierarchyLevel.QUARTER));
+        assertEquals("2026-08", DateHierarchyProjector.label(date, DateHierarchyLevel.MONTH));
+        assertEquals("2026-08-20", DateHierarchyProjector.label(date, DateHierarchyLevel.DAY));
+
+        ResultSetSnapshot source = new ResultSetSnapshot("invoices", List.of(new ResultColumn(0,
+                "invoice_date", "Invoice Date", Types.DATE, "DATE", NormalizedDataType.DATE,
+                Nullability.NOT_NULL)), List.of(new ResultRow(1, List.of(date))), 1, false, Instant.EPOCH);
+        assertEquals(source, DateHierarchyProjector.apply(source, List.of()));
+    }
 }

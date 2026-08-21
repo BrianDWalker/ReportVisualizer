@@ -41,6 +41,7 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSorter;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixDisplayOptions;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyLevel;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyNavigator;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyProjector;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchySelection;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationExportService;
@@ -264,7 +265,7 @@ public final class ResultsVisualizerView extends ViewPart {
         wellsLayout.horizontalSpacing = 6;
         wells.setLayout(wellsLayout);
         xWell = createWell(wells, "X-Axis", FieldRole.X);
-        valueWell = createWell(wells, "Values", FieldRole.VALUE);
+        valueWell = createValuesWell(wells);
         seriesWell = createWell(wells, "Series", FieldRole.SERIES);
 
         matrixConfiguration = new Composite(configurationGroup, SWT.NONE);
@@ -306,34 +307,13 @@ public final class ResultsVisualizerView extends ViewPart {
 
         Composite actionBand = new Composite(configurationGroup, SWT.NONE);
         actionBand.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout actionBandLayout = new GridLayout(2, false);
+        GridLayout actionBandLayout = new GridLayout(6, false);
         actionBandLayout.marginWidth = 0;
         actionBandLayout.marginHeight = 0;
         actionBandLayout.horizontalSpacing = 6;
         actionBand.setLayout(actionBandLayout);
 
-        Composite localActions = new Composite(actionBand, SWT.NONE);
-        localActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout localLayout = new GridLayout(6, false);
-        localLayout.marginWidth = 0;
-        localLayout.marginHeight = 0;
-        localLayout.horizontalSpacing = 4;
-        localActions.setLayout(localLayout);
-        addCalculatedFieldButton = new Button(localActions, SWT.PUSH);
-        addCalculatedFieldButton.setText("Formulas…");
-        addCalculatedFieldButton.setToolTipText("Create, edit, or delete local calculated fields");
-        addCalculatedFieldButton.setEnabled(false);
-        setAccessibleName(addCalculatedFieldButton, "Manage Local Calculated Fields");
-        addCalculatedFieldButton.addListener(SWT.Selection, event -> openCalculatedFieldManager());
-        valuesButton = new Button(localActions, SWT.PUSH);
-        valuesButton.setText("Values…");
-        valuesButton.setToolTipText("Choose one or more chart measures");
-        valuesButton.addListener(SWT.Selection, event -> openValuesDialog());
-        Button chartOptionsButton = new Button(localActions, SWT.PUSH);
-        chartOptionsButton.setText("Options…");
-        chartOptionsButton.setToolTipText("Set labels, markers, legend, and pie display options");
-        chartOptionsButton.addListener(SWT.Selection, event -> openChartOptionsDialog());
-        slicersButton = new Button(localActions, SWT.PUSH);
+        slicersButton = new Button(actionBand, SWT.PUSH);
         slicersButton.setText("Slicer ▾");
         slicersButton.setToolTipText("Add or edit a slicer, or clear all active slicers");
         slicersButton.addListener(SWT.Selection, event -> showDropdownMenu(slicersButton, menu -> {
@@ -342,11 +322,11 @@ public final class ResultsVisualizerView extends ViewPart {
             addMenuItem(menu, "Clear Slicers", "Remove all active slicers",
                     () -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
         }));
-        hierarchyButton = new Button(localActions, SWT.PUSH);
+        hierarchyButton = new Button(actionBand, SWT.PUSH);
         hierarchyButton.setText("Date Level ▾");
         hierarchyButton.setToolTipText("Drill the selected date hierarchy up or down");
         hierarchyButton.addListener(SWT.Selection, event -> showHierarchyMenu());
-        Button savePreset = new Button(localActions, SWT.PUSH);
+        Button savePreset = new Button(actionBand, SWT.PUSH);
         savePreset.setText("Presets ▾");
         savePreset.setToolTipText("Save, load, or delete a saved chart layout preset for this result shape");
         savePreset.addListener(SWT.Selection, event -> showDropdownMenu(savePreset, menu -> {
@@ -357,28 +337,27 @@ public final class ResultsVisualizerView extends ViewPart {
             addMenuItem(menu, "Delete Preset…", "Remove a saved preset by name",
                     () -> deleteVisualizationPreset());
         }));
-        Composite sourceActions = new Composite(actionBand, SWT.NONE);
-        sourceActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout sourceLayout = new GridLayout(2, false);
-        sourceLayout.marginWidth = 0;
-        sourceLayout.marginHeight = 0;
-        sourceLayout.horizontalSpacing = 4;
-        sourceActions.setLayout(sourceLayout);
-        sourceQueryButton = new Button(sourceActions, SWT.PUSH);
+        sourceQueryButton = new Button(actionBand, SWT.PUSH);
         sourceQueryButton.setText("Source Query…");
         sourceQueryButton.setToolTipText("Add existing fields and aggregations, manage custom SQL fields, preview SQL, and execute it here");
         sourceQueryButton.addListener(SWT.Selection, event -> openSourceQueryBuilder());
-        sortButton = new Button(sourceActions, SWT.PUSH);
+        sortButton = new Button(actionBand, SWT.PUSH);
         sortButton.setText("Sort…");
         sortButton.setToolTipText("Set one or more ASC/DESC sort keys in priority order");
         sortButton.addListener(SWT.Selection, event -> openSortDialog());
+        addCalculatedFieldButton = new Button(actionBand, SWT.PUSH);
+        addCalculatedFieldButton.setText("Formulas…");
+        addCalculatedFieldButton.setToolTipText("Create, edit, or delete local calculated fields");
+        addCalculatedFieldButton.setEnabled(false);
+        setAccessibleName(addCalculatedFieldButton, "Manage Local Calculated Fields");
+        addCalculatedFieldButton.addListener(SWT.Selection, event -> openCalculatedFieldManager());
         calculatedFieldStatus = new Label(configurationGroup, SWT.NONE);
         calculatedFieldStatus.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         setVisible(calculatedFieldStatus, false);
 
         Composite controls = new Composite(configurationGroup, SWT.NONE);
         controls.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout controlsLayout = new GridLayout(4, false);
+        GridLayout controlsLayout = new GridLayout(5, false);
         controlsLayout.marginWidth = 0;
         controlsLayout.marginHeight = 0;
         controlsLayout.horizontalSpacing = 6;
@@ -423,12 +402,22 @@ public final class ResultsVisualizerView extends ViewPart {
         yMaximumCombo.addListener(SWT.DefaultSelection, event -> applyYMaximum());
         yMaximumCombo.addListener(SWT.FocusOut, event -> applyYMaximum());
 
+        Button chartOptionsButton = new Button(controls, SWT.PUSH);
+        chartOptionsButton.setText("Options…");
+        chartOptionsButton.setToolTipText("Set labels, markers, legend, and pie display options");
+        chartOptionsButton.addListener(SWT.Selection, event -> openChartOptionsDialog());
+
         Button reset = new Button(controls, SWT.PUSH);
         reset.setText("Reset");
         reset.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
         setAccessibleName(reset, "Reset Visualization");
         reset.setToolTipText("Clear field assignments without changing SQL or results");
         reset.addListener(SWT.Selection, event -> resetVisualization());
+
+        // Creation order is wells, actions, status, visual controls. Reorder only the
+        // lightweight SWT children so the visible builder reads Fields / Visual / Actions.
+        controls.moveAbove(actionBand);
+        calculatedFieldStatus.moveBelow(actionBand);
 
         ViewTheme.compact(configurationGroup);
         ViewTheme.improveContrast(configurationGroup);
@@ -461,11 +450,12 @@ public final class ResultsVisualizerView extends ViewPart {
         menu.setVisible(true);
     }
 
-    private static void addMenuItem(Menu menu, String text, String toolTip, Runnable action) {
+    private static MenuItem addMenuItem(Menu menu, String text, String toolTip, Runnable action) {
         MenuItem item = new MenuItem(menu, SWT.PUSH);
         item.setText(text);
         if (toolTip != null) item.setToolTipText(toolTip);
         item.addListener(SWT.Selection, event -> action.run());
+        return item;
     }
 
     private static GridData compactComboData(int width) {
@@ -529,6 +519,28 @@ public final class ResultsVisualizerView extends ViewPart {
         well.setLayoutData(compactComboData(100));
         well.setToolTipText("Select a field from the list");
         well.addListener(SWT.Selection, event -> assignRole(role, well.getSelectionIndex() - 1));
+        return well;
+    }
+
+    private Combo createValuesWell(Composite parent) {
+        Composite card = new Composite(parent, SWT.NONE);
+        card.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        GridLayout layout = new GridLayout(3, false);
+        layout.marginWidth = 0;
+        layout.marginHeight = 0;
+        layout.horizontalSpacing = 3;
+        card.setLayout(layout);
+        new Label(card, SWT.NONE).setText("Values:");
+        Combo well = new Combo(card, SWT.DROP_DOWN | SWT.READ_ONLY);
+        setAccessibleName(well, "Values field well");
+        well.setLayoutData(compactComboData(100));
+        well.setToolTipText("Select the primary value field");
+        well.addListener(SWT.Selection, event -> assignRole(FieldRole.VALUE,
+                well.getSelectionIndex() - 1));
+        valuesButton = new Button(card, SWT.PUSH);
+        valuesButton.setText("Values…");
+        valuesButton.setToolTipText("Choose one or more chart measures");
+        valuesButton.addListener(SWT.Selection, event -> openValuesDialog());
         return well;
     }
 
@@ -1010,6 +1022,7 @@ public final class ResultsVisualizerView extends ViewPart {
         } else {
             yMaximumCombo.setText(formatAxisMaximum(configuration.yAxisMaximum()));
         }
+        updateHierarchyButton();
     }
 
     /**
@@ -1037,7 +1050,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private void updateValuesButton() {
         if (valuesButton == null || valuesButton.isDisposed() || configuration == null) return;
         int count = configuration.valueColumnIndexes().size();
-        valuesButton.setText(count <= 1 ? "Values…" : "Values (" + count + ")…");
+        valuesButton.setText(count <= 1 ? "Values…" : "Values… (" + count + ")");
         valuesButton.getParent().layout(true, true);
     }
 
@@ -1060,12 +1073,10 @@ public final class ResultsVisualizerView extends ViewPart {
             if (role == FieldRole.X) {
                 activeXChoice = choice;
                 matrixRows = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
-                synchronizeDateHierarchies(matrixRows);
                 configuration = configuration.withXColumns(resultIndexes(matrixRows));
             } else {
                 activeSeriesChoice = choice;
                 matrixColumns = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
-                synchronizeDateHierarchies(matrixColumns);
                 configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
             }
         }
@@ -1125,7 +1136,6 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void setMatrixRows(List<DimensionChoice> choices) {
         matrixRows = new ArrayList<>(choices);
-        synchronizeDateHierarchies(matrixRows);
         activeXChoice = matrixRows.isEmpty() ? null : matrixRows.get(0);
         configuration = configuration.withXColumns(resultIndexes(matrixRows));
         updateChart();
@@ -1133,7 +1143,6 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void setMatrixColumns(List<DimensionChoice> choices) {
         matrixColumns = new ArrayList<>(choices);
-        synchronizeDateHierarchies(matrixColumns);
         activeSeriesChoice = matrixColumns.isEmpty() ? null : matrixColumns.get(0);
         configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
         updateChart();
@@ -1216,12 +1225,6 @@ public final class ResultsVisualizerView extends ViewPart {
         List<DimensionChoice> choices = new ArrayList<>();
         for (int index = 0; index < value.columns().size(); index++) {
             choices.add(DimensionChoice.result(value, index));
-            NormalizedDataType type = value.columns().get(index).normalizedType();
-            if (type == NormalizedDataType.DATE || type == NormalizedDataType.DATETIME) {
-                for (DateHierarchyLevel level : DateHierarchyLevel.values()) {
-                    choices.add(DimensionChoice.dateHierarchy(value, index, level));
-                }
-            }
         }
         customSqlDimensions.stream()
                 .filter(dimension -> value.columns().stream().noneMatch(column ->
@@ -1231,9 +1234,7 @@ public final class ResultsVisualizerView extends ViewPart {
     }
 
     private DimensionChoice dimensionChoice(ResultSetSnapshot value, int index) {
-        return dateHierarchies.stream().filter(selection -> selection.fieldIndex() == index).findFirst()
-                .map(selection -> DimensionChoice.dateHierarchy(value, index, selection.level()))
-                .orElseGet(() -> DimensionChoice.result(value, index));
+        return DimensionChoice.result(value, index);
     }
 
     private static void populateDimensionWell(Combo well, List<DimensionChoice> choices,
@@ -1261,44 +1262,65 @@ public final class ResultsVisualizerView extends ViewPart {
                 .map(DimensionChoice::resultIndex).toList();
     }
 
-    private void synchronizeDateHierarchies(List<DimensionChoice> choices) {
-        for (DimensionChoice choice : choices) {
-            if (choice.isDateHierarchy()) {
-                dateHierarchies.removeIf(value -> value.fieldIndex() == choice.resultIndex());
-                dateHierarchies.add(choice.dateHierarchy());
-            } else if (!choice.isCustom() && choice.resultIndex() != null) {
-                dateHierarchies.removeIf(value -> value.fieldIndex() == choice.resultIndex());
-            }
+    private void updateHierarchyButton() {
+        if (hierarchyButton == null || hierarchyButton.isDisposed() || snapshot == null) return;
+        int fieldIndex = activeDateFieldIndex();
+        if (fieldIndex < 0) {
+            hierarchyButton.setText("Date Level ▾");
+            hierarchyButton.setEnabled(false);
+        } else {
+            DateHierarchyLevel level = DateHierarchyNavigator.levelFor(dateHierarchies, fieldIndex);
+            hierarchyButton.setText("Date: " + (level == null ? "Original" : level) + " ▾");
+            hierarchyButton.setEnabled(true);
         }
+        hierarchyButton.getParent().layout(true, true);
     }
 
     private void showHierarchyMenu() {
         if (snapshot == null) return;
-        DateHierarchySelection selection = activeDateHierarchy();
-        if (selection == null) {
+        int fieldIndex = activeDateFieldIndex();
+        if (fieldIndex < 0) {
             MessageDialog.openInformation(content.getShell(), "Date Level",
-                    "Select a date hierarchy in X, Series, Matrix Rows, or Matrix Columns first.");
+                    "Select a DATE or DATETIME field in X, Series, Matrix Rows, or Matrix Columns first.");
             return;
         }
         showDropdownMenu(hierarchyButton, menu -> {
-            DateHierarchyLevel[] levels = DateHierarchyLevel.values();
-            int current = selection.level().ordinal();
-            if (current > 0) addMenuItem(menu, "Drill Up", "Move to a coarser date level",
-                    () -> changeDateHierarchy(selection.fieldIndex(), levels[current - 1]));
-            if (current < levels.length - 1) addMenuItem(menu, "Drill Down", "Move to a finer date level",
-                    () -> changeDateHierarchy(selection.fieldIndex(), levels[current + 1]));
+            DateHierarchyLevel current = DateHierarchyNavigator.levelFor(dateHierarchies, fieldIndex);
+            addMenuItem(menu, "Original", "Use the original date/time value",
+                    () -> changeDateHierarchy(fieldIndex, null));
+            for (DateHierarchyLevel level : DateHierarchyLevel.values()) {
+                addMenuItem(menu, level.toString(), "Group locally by " + level,
+                        () -> changeDateHierarchy(fieldIndex, level));
+            }
+            new MenuItem(menu, SWT.SEPARATOR);
+            MenuItem drillUp = addMenuItem(menu, "Drill Up", "Move to a coarser date level",
+                    () -> changeDateHierarchy(fieldIndex, DateHierarchyNavigator.drillUp(current)));
+            drillUp.setEnabled(current != null);
+            MenuItem drillDown = addMenuItem(menu, "Drill Down", "Move to a finer date level",
+                    () -> changeDateHierarchy(fieldIndex, DateHierarchyNavigator.drillDown(current)));
+            drillDown.setEnabled(current != DateHierarchyLevel.DAY);
         });
     }
 
-    private DateHierarchySelection activeDateHierarchy() {
-        if (activeXChoice != null && activeXChoice.isDateHierarchy()) return activeXChoice.dateHierarchy();
-        if (activeSeriesChoice != null && activeSeriesChoice.isDateHierarchy()) return activeSeriesChoice.dateHierarchy();
-        return dateHierarchies.isEmpty() ? null : dateHierarchies.get(0);
+    private int activeDateFieldIndex() {
+        List<DimensionChoice> candidates = new ArrayList<>();
+        if (isMatrix()) {
+            candidates.addAll(matrixRows);
+            candidates.addAll(matrixColumns);
+        } else {
+            if (activeXChoice != null) candidates.add(activeXChoice);
+            if (activeSeriesChoice != null) candidates.add(activeSeriesChoice);
+        }
+        return candidates.stream().filter(choice -> !choice.isCustom() && choice.resultIndex() != null)
+                .map(DimensionChoice::resultIndex).filter(index -> isDateColumn(snapshot, index))
+                .findFirst().orElse(-1);
     }
 
     private void changeDateHierarchy(int fieldIndex, DateHierarchyLevel level) {
-        dateHierarchies.removeIf(selection -> selection.fieldIndex() == fieldIndex);
-        dateHierarchies.add(new DateHierarchySelection(fieldIndex, level));
+        List<DateHierarchySelection> updated = DateHierarchyNavigator.select(
+                dateHierarchies, fieldIndex, level);
+        dateHierarchies.clear();
+        dateHierarchies.addAll(updated);
         initializeDimensionSelections(snapshot);
         populateControls(snapshot);
         updateChart();
@@ -1327,7 +1349,8 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void openSlicerDialog() {
         if (snapshot == null) return;
-        SlicerDialog dialog = new SlicerDialog(content.getShell(), snapshot, this::previewDistinctSourceQuery);
+        SlicerDialog dialog = new SlicerDialog(content.getShell(), snapshot, slicers,
+                this::previewDistinctSourceQuery);
         if (dialog.open() != Window.OK || dialog.definition() == null) return;
         slicers.removeIf(existing -> existing.fieldName().equalsIgnoreCase(dialog.definition().fieldName()));
         slicers.add(dialog.definition());
@@ -1545,8 +1568,12 @@ public final class ResultsVisualizerView extends ViewPart {
         if (chartCanvas == null || chartCanvas.isDisposed() || snapshot == null) {
             return;
         }
-        Image image = chartCanvas.captureImage();
+        Image image = null;
         try {
+            image = chartCanvas.captureImage();
+            if (image == null || image.isDisposed()) {
+                throw new IllegalStateException("Chart image capture returned no usable image.");
+            }
             Clipboard clipboard = new Clipboard(getSite().getShell().getDisplay());
             try {
                 clipboard.setContents(new Object[] { image.getImageData() },
@@ -1554,10 +1581,14 @@ public final class ResultsVisualizerView extends ViewPart {
             } finally {
                 clipboard.dispose();
             }
-            MessageDialog.openInformation(content.getShell(), "Chart copied",
-                    "The current chart image was copied to the clipboard.");
+        } catch (RuntimeException | org.eclipse.swt.SWTError error) {
+            com.brianwalker.dbeaver.resultsvisualizer.ResultsVisualizerPlugin.logError(
+                    "Unable to copy chart image to the clipboard.", error);
+            MessageDialog.openError(content.getShell(), "Copy Image failed",
+                    "The chart image could not be copied to the clipboard. "
+                            + "Check the Error Log for details.");
         } finally {
-            if (!image.isDisposed()) {
+            if (image != null && !image.isDisposed()) {
                 image.dispose();
             }
         }

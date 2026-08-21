@@ -3,8 +3,8 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 /** Typed local filter operations. */
 public enum SlicerOperator {
-    IN("In", 0),
-    EQUALS("=", 1), NOT_EQUALS("!=", 1), GREATER_THAN(">", 1),
+    IN("Select Values", 0),
+    EQUALS("=", 1), NOT_EQUALS("<>", 1), GREATER_THAN(">", 1),
     GREATER_THAN_OR_EQUAL(">=", 1), LESS_THAN("<", 1),
     LESS_THAN_OR_EQUAL("<=", 1), BETWEEN("Between", 2), NOT_BETWEEN("Not Between", 2),
     BEFORE("Before", 1), AFTER("After", 1), ON_OR_BEFORE("On or Before", 1),
