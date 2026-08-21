@@ -5,6 +5,7 @@
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -72,6 +73,30 @@ public class ChartRendererSvgExportTest {
     }
 
     @Test
+    public void chartOptionsControlDataLabelsMarkersAndPieLabelsAcrossRenderers() {
+        ChartDataset categorical = new ChartDataset("Category", "Value", List.of(
+                new ChartPoint("Alpha", null, 37, "First"),
+                new ChartPoint("Beta", null, 61, "Second")));
+        ChartDisplayOptions noLabels = new ChartDisplayOptions(false, false, false,
+                ChartDisplayOptions.LegendPosition.NONE, ChartDisplayOptions.PieLabelMode.CATEGORY, 0);
+        ChartDisplayOptions labelsAndMarkers = new ChartDisplayOptions(true, true, false,
+                ChartDisplayOptions.LegendPosition.TOP, ChartDisplayOptions.PieLabelMode.CATEGORY, 0);
+
+        assertFalse("Horizontal bars must hide values when data labels are disabled",
+                render(new HorizontalBarChartRenderer(), categorical.withDisplayOptions(noLabels)).contains(">37<"));
+        assertTrue("Combo columns must render data labels when enabled",
+                render(new ComboChartRenderer(), categorical.withDisplayOptions(labelsAndMarkers)).contains(">37<"));
+        assertFalse("Pie labels must respect the data-label/legend settings",
+                render(new PieChartRenderer(ChartType.PIE), categorical.withDisplayOptions(noLabels)).contains(">Alpha<"));
+        assertTrue("Pie labels must honor the selected label mode",
+                render(new PieChartRenderer(ChartType.PIE), categorical.withDisplayOptions(labelsAndMarkers)).contains(">Alpha<"));
+
+        String noMarkers = render(new AreaChartRenderer(ChartType.AREA, false), categorical.withDisplayOptions(noLabels));
+        String markers = render(new AreaChartRenderer(ChartType.AREA, false), categorical.withDisplayOptions(labelsAndMarkers));
+        assertTrue("Area markers must add marker ellipses", occurrences(markers, "<ellipse") > occurrences(noMarkers, "<ellipse"));
+    }
+
+    @Test
     public void fillArcHandlesFullCircleWithoutDegenerateArc() {
         SvgChartGraphics svg = new SvgChartGraphics(100, 100, ChartTheme.light());
         svg.fillArc(10, 10, 80, 80, 0, 360);
@@ -91,6 +116,16 @@ public class ChartRendererSvgExportTest {
                 new ChartPoint("A", 1.0, 4.0, "Series 1"),
                 new ChartPoint("B", 2.0, 7.0, "Series 1"),
                 new ChartPoint("C", 3.0, 2.0, "Series 1")));
+    }
+
+    private static String render(ChartRenderer renderer, ChartDataset dataset) {
+        SvgChartGraphics svg = new SvgChartGraphics(500, 300, ChartTheme.light());
+        renderer.render(svg, new org.eclipse.swt.graphics.Rectangle(0, 0, 500, 300), dataset);
+        return svg.toSvg();
+    }
+
+    private static int occurrences(String text, String needle) {
+        return text.split(java.util.regex.Pattern.quote(needle), -1).length - 1;
     }
 
     private static ChartDataset matrixDataset() {

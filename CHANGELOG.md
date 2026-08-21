@@ -2,6 +2,14 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.5 — 2026-08-20
+
+- Made the compact **Values…** dialog's measure list vertically scrollable, so
+  every result field remains reachable, and reduced its default size.
+- Fixed Chart Options wiring: data labels now apply to horizontal bars, combo,
+  and pie/donut charts; area charts honor line markers; and horizontal bars
+  honor the legend position.
+
 ## 1.2.4 — 2026-08-20
 
 - Consolidated the Values field control, Values chooser, global aggregation

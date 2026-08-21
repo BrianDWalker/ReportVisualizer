@@ -59,6 +59,14 @@ public final class AreaChartRenderer implements ChartRenderer {
                         ChartDrawing.categoryX(plot, c, categories.size()),
                         ChartDrawing.y(plot, tops[c], range));
             }
+            if (data.displayOptions().markers()) {
+                gc.setBackground(ChartDrawing.seriesColor(gc, s));
+                for (int c = 0; c < categories.size(); c++) {
+                    int markerX = ChartDrawing.categoryX(plot, c, categories.size());
+                    int markerY = ChartDrawing.y(plot, tops[c], range);
+                    gc.fillOval(markerX - 3, markerY - 3, 7, 7);
+                }
+            }
             gc.setLineWidth(1);
         }
         for (int c = 0; c < categories.size(); c++) {
