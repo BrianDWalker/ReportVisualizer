@@ -53,8 +53,11 @@ final class ValuesDialog extends TitleAreaDialog {
             aggregation.setEnabled(check.getSelection()); check.addListener(SWT.Selection, event -> aggregation.setEnabled(check.getSelection()));
             checks.add(check); aggregationCombos.add(aggregation);
         }
+        rows.layout(true, true);
+        org.eclipse.swt.graphics.Point rowsSize = rows.computeSize(SWT.DEFAULT, SWT.DEFAULT);
+        rows.setSize(rowsSize);
         scroller.setContent(rows);
-        scroller.setMinSize(rows.computeSize(SWT.DEFAULT, SWT.DEFAULT));
+        scroller.setMinSize(rowsSize);
         return area;
     }
     @Override protected void createButtonsForButtonBar(Composite parent) { createButton(parent, IDialogConstants.OK_ID, "Apply", true); createButton(parent, IDialogConstants.CANCEL_ID, IDialogConstants.CANCEL_LABEL, false); }
