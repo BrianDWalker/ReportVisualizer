@@ -49,6 +49,23 @@ public class MatrixCanvasMetricsTest {
                 MatrixCanvasMetrics.height(large) > typicalViewportHeight);
     }
 
+    @Test
+    public void collapsedHierarchyAndTopNReduceRenderedRows() {
+        List<ChartPoint> points = List.of(
+                new ChartPoint("A › One", null, 10, "Value", List.of("A", "One"), List.of("Value")),
+                new ChartPoint("A › Two", null, 8, "Value", List.of("A", "Two"), List.of("Value")),
+                new ChartPoint("B › One", null, 2, "Value", List.of("B", "One"), List.of("Value")));
+        MatrixDisplayOptions collapsed = new MatrixDisplayOptions(true, true, false, true,
+                MatrixDisplayOptions.Layout.STEPPED, 2, false, true,
+                MatrixDisplayOptions.ConditionalFormat.DATA_BARS, true, 2, 120, java.util.Set.of(),
+                java.util.Set.of(MatrixChartRenderer.path(List.of("A"))));
+        ChartDataset data = new ChartDataset("Rows", "Value", points, null, List.of("Group", "Item"),
+                List.of("Measure"), collapsed);
+
+        assertEquals(2, MatrixChartRenderer.visualRowCount(data));
+        assertEquals(120, data.matrixOptions().columnWidth());
+    }
+
     private static ChartDataset matrixDataset(int rows, int cols) {
         List<ChartPoint> points = new java.util.ArrayList<>();
         for (int r = 0; r < rows; r++) {

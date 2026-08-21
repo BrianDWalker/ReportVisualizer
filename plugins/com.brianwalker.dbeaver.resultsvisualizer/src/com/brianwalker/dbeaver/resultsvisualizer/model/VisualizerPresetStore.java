@@ -22,11 +22,19 @@ public final class VisualizerPresetStore {
     public void save(String name, ResultSetSnapshot snapshot, VisualizationConfiguration configuration,
             MatrixDisplayOptions matrixOptions, List<Integer> matrixValues, List<SlicerDefinition> slicers,
             List<SortRule> sortRules, List<CalculatedFieldDefinition> calculatedFields) {
+        save(name, snapshot, configuration, matrixOptions, matrixValues, slicers, List.of(),
+                sortRules, calculatedFields);
+    }
+
+    public void save(String name, ResultSetSnapshot snapshot, VisualizationConfiguration configuration,
+            MatrixDisplayOptions matrixOptions, List<Integer> matrixValues, List<SlicerDefinition> slicers,
+            List<com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchySelection> dateHierarchies,
+            List<SortRule> sortRules, List<CalculatedFieldDefinition> calculatedFields) {
         String presetName = name(name); if (presetName.isBlank()) throw new IllegalArgumentException("Preset name is required.");
         if (snapshot == null || configuration == null) throw new IllegalArgumentException("Snapshot and configuration are required.");
         VisualizerPreset preset = new VisualizerPreset(presetName, VisualizerPreset.sourceSignature(snapshot), configuration.chartType(),
                 configuration.xColumnIndexes(), configuration.valueColumnIndex(), configuration.seriesColumnIndexes(), configuration.aggregation(),
-                configuration.yAxisMaximum(), matrixOptions, matrixValues, slicers, sortRules, calculatedFields);
+                configuration.yAxisMaximum(), matrixOptions, configuration.valueColumnIndexes(), configuration.displayOptions(), matrixValues, slicers, dateHierarchies, sortRules, calculatedFields);
         try { root.put(key(presetName), preset.serialize()); root.flush(); }
         catch (BackingStoreException error) { throw new IllegalStateException("Unable to save preset.", error); }
     }

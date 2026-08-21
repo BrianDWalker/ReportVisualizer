@@ -13,7 +13,7 @@ public interface ResultSetService extends AutoCloseable {
     void setSource(ResultSource source);
     String sourceQuery();
     boolean previewQuery(String title, String sql);
-    void executeQuery(String title, String sql);
+    void executeQuery(String title, AggregateExecutionRequest request);
     void refresh();
 
     /**

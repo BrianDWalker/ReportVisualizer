@@ -8,9 +8,12 @@ import org.eclipse.swt.graphics.Rectangle;
 
 /** Numeric X/Y scatter chart renderer. */
 public final class ScatterChartRenderer implements ChartRenderer {
+    private final ChartType type; private final boolean bubble;
+    public ScatterChartRenderer() { this(ChartType.SCATTER, false); }
+    public ScatterChartRenderer(ChartType type, boolean bubble) { this.type = type; this.bubble = bubble; }
     @Override
     public ChartType type() {
-        return ChartType.SCATTER;
+        return type;
     }
 
     @Override
@@ -29,6 +32,8 @@ public final class ScatterChartRenderer implements ChartRenderer {
         ChartDrawing.Range yRange = ChartDrawing.yRange(
                 dataset.points(), false, dataset.yAxisMaximum());
         ChartDrawing.drawAxes(graphics, plot, dataset, yRange, xRange, true);
+        double maximumBubbleSize = dataset.points().stream().map(ChartPoint::size)
+                .filter(java.util.Objects::nonNull).mapToDouble(value -> Math.abs(value)).max().orElse(0);
 
         java.util.List<String> seriesNames = dataset.seriesNames();
         for (int seriesIndex = 0; seriesIndex < seriesNames.size(); seriesIndex++) {
@@ -39,10 +44,15 @@ public final class ScatterChartRenderer implements ChartRenderer {
                 ChartPoint point = seriesPoints.get(pointIndex);
                 int x = ChartDrawing.numericX(plot, point.numericX(), xRange);
                 int y = ChartDrawing.y(plot, point.y(), yRange);
-                graphics.fillOval(x - 5, y - 5, 11, 11);
+                double bubbleValue = point.size() == null ? Math.abs(point.y()) : Math.abs(point.size());
+                double bubbleMaximum = maximumBubbleSize > 0 ? maximumBubbleSize
+                        : Math.max(1, Math.max(Math.abs(yRange.minimum()), Math.abs(yRange.maximum())));
+                int radius = bubble ? Math.max(5, Math.min(18,
+                        5 + (int) Math.round(bubbleValue / bubbleMaximum * 13))) : 5;
+                graphics.fillOval(x - radius, y - radius, radius * 2 + 1, radius * 2 + 1);
                 graphics.setForeground(graphics.theme().background());
-                graphics.drawOval(x - 3, y - 3, 7, 7);
-                if (ChartDrawing.shouldDrawValueLabel(pointIndex, seriesPoints.size())) {
+                graphics.drawOval(x - Math.max(2, radius - 2), y - Math.max(2, radius - 2), Math.max(5, radius * 2 - 3), Math.max(5, radius * 2 - 3));
+                if (dataset.displayOptions().dataLabels() && ChartDrawing.shouldDrawValueLabel(pointIndex, seriesPoints.size())) {
                     ChartDrawing.drawValueLabel(graphics, plot, x, y, point.y());
                 }
             }

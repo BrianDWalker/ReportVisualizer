@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Latest public update version:** `1.1.0.202608152300`
+**Current release line:** `1.2.0`
 
 ## Install
 
@@ -35,8 +35,9 @@ Release downloads and checksums are available on the
 - Uses the full view width for visualization; fields are selected only in the
   configuration dropdowns
 - Source selector switches between standard Results and DBeaver Grouping output
-- Renders Bar, Horizontal Bar, Stacked Bar, Line, Area, Stacked Area, Scatter,
-  Pie, Donut, Heatmap, and Matrix/Pivot visualizations
+- Renders Bar, Horizontal Bar, Stacked Bar, 100% Stacked Bar, Line, Area,
+  Stacked Area, 100% Stacked Area, Column + Line, Scatter, Bubble, Pie, Donut,
+  Heatmap, and Matrix/Pivot visualizations
 - Automatically chooses a categorical X field and numeric Y field when possible
 - Compact dropdown selectors assign X-Axis, Values, and optional Series
   fields. Values accepts any column type: numeric columns support the full
@@ -59,10 +60,16 @@ Release downloads and checksums are available on the
 - Local SUM, AVG, MIN, MAX, COUNT, and COUNT DISTINCT aggregation without
   rewriting SQL
 - Multi-series bar, line, and scatter rendering with an in-chart legend
+- Combo charts can place line measures on an independently scaled secondary
+  Y-axis. Bubble charts use the first selected Value as Y and the second as
+  bubble size.
 - Matrix Values supports multiple ordered measures of any compatible
   aggregation in one pivot, following the same numeric/non-numeric
   aggregation rules as the chart Values well
 - Chart type switching that preserves compatible field assignments
+- Report-style Matrix options include stepped/tabular layouts, hierarchical
+  collapse/expand, configurable subtotal levels and totals, Top-N, number and
+  percentage formats, thousands separators, heat scales, and data bars
 - Automatic readable Y-axis ceilings (for example 91 becomes 100), with an
   editable Y Max override
 - **Reset Visualization** clears chart configuration without touching SQL/results
@@ -90,6 +97,8 @@ Release downloads and checksums are available on the
 - Installable p2 update-site repository
 - Entirely local SWT rendering: no localhost service, external JavaScript,
   Node.js, Python, cloud service, or database modification at runtime
+- Build inputs are hardened with immutable GitHub Actions commits and a
+  SHA-256-verified Maven wrapper distribution
 - Visualization state (chart configuration, matrix layout, slicers, sorts,
   calculated fields) is scoped per active result/Grouping panel, keyed by a
   stable result identity rather than the editor title, and survives switching
@@ -279,6 +288,7 @@ See [docs/architecture.md](docs/architecture.md),
 [docs/part-3-verification.md](docs/part-3-verification.md), and
 [docs/part-4-verification.md](docs/part-4-verification.md), and
 [docs/part-5-verification.md](docs/part-5-verification.md), and
+[docs/phase-5-release-verification.md](docs/phase-5-release-verification.md), and
 [docs/refinements-verification.md](docs/refinements-verification.md), and
 [docs/visualization-expansion.md](docs/visualization-expansion.md).
 

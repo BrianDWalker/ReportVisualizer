@@ -6,13 +6,17 @@ import org.eclipse.swt.graphics.Rectangle;
 
 /** Series values stacked into one bar per category. */
 public final class StackedBarChartRenderer implements ChartRenderer {
-    @Override public ChartType type() { return ChartType.STACKED_BAR; }
+    private final ChartType type;
+    private final boolean hundredPercent;
+    public StackedBarChartRenderer() { this(ChartType.STACKED_BAR, false); }
+    public StackedBarChartRenderer(ChartType type, boolean hundredPercent) { this.type = type; this.hundredPercent = hundredPercent; }
+    @Override public ChartType type() { return type; }
 
     @Override public void render(ChartGraphics gc, Rectangle bounds, ChartDataset data) {
         if (data.points().isEmpty()) { ChartDrawing.drawMessage(gc, bounds, "No values to chart."); return; }
         List<String> categories = data.categories();
         List<String> series = data.seriesNames();
-        double maximum = categories.stream().mapToDouble(category -> data.points().stream()
+        double maximum = hundredPercent ? 100 : categories.stream().mapToDouble(category -> data.points().stream()
                 .filter(p -> p.label().equals(category)).mapToDouble(p -> Math.max(0, p.y())).sum()).max().orElse(1);
         ChartDrawing.Range range = new ChartDrawing.Range(0, ChartDrawing.niceCeiling(maximum));
         Rectangle plot = ChartDrawing.plotBounds(bounds);
@@ -20,10 +24,14 @@ public final class StackedBarChartRenderer implements ChartRenderer {
         int width = Math.max(3, (int) ((double) plot.width / categories.size() * .62));
         for (int c = 0; c < categories.size(); c++) {
             double running = 0;
+            String category = categories.get(c);
+            double total = data.points().stream().filter(p -> p.label().equals(category))
+                    .mapToDouble(p -> Math.max(0, p.y())).sum();
             for (int s = 0; s < series.size(); s++) {
-                String category = categories.get(c), seriesName = series.get(s);
+                String seriesName = series.get(s);
                 double value = data.points().stream().filter(p -> p.label().equals(category)
                         && p.series().equals(seriesName)).mapToDouble(ChartPoint::y).findFirst().orElse(0);
+                if (hundredPercent) value = total == 0 ? 0 : Math.max(0, value) / total * 100;
                 int top = ChartDrawing.y(plot, running + Math.max(0, value), range);
                 int bottom = ChartDrawing.y(plot, running, range);
                 gc.setBackground(ChartDrawing.seriesColor(gc, s));
@@ -31,7 +39,7 @@ public final class StackedBarChartRenderer implements ChartRenderer {
                         top, width, Math.max(1, bottom - top));
                 running += Math.max(0, value);
             }
-            if (ChartDrawing.shouldDrawValueLabel(c, categories.size())) {
+            if (data.displayOptions().dataLabels() && ChartDrawing.shouldDrawValueLabel(c, categories.size())) {
                 ChartDrawing.drawValueLabel(gc, plot,
                         ChartDrawing.categoryX(plot, c, categories.size()),
                         ChartDrawing.y(plot, running, range), running);

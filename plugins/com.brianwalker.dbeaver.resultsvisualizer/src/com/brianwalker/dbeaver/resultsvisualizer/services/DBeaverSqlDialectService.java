@@ -132,8 +132,12 @@ public final class DBeaverSqlDialectService {
     }
 
     public static QueryStrategy strategyFor(String sourceSql) {
-        String normalized = safeSingleStatement(sourceSql);
-        if (normalized == null) return QueryStrategy.DERIVED_TABLE_FALLBACK;
+        String normalized;
+        try {
+            normalized = normalizedSingleStatement(sourceSql);
+        } catch (IllegalArgumentException invalid) {
+            return QueryStrategy.DERIVED_TABLE_FALLBACK;
+        }
         String upper = normalized.toUpperCase(Locale.ROOT);
         if (!upper.startsWith("SELECT")) return QueryStrategy.DERIVED_TABLE_FALLBACK;
 
@@ -152,8 +156,7 @@ public final class DBeaverSqlDialectService {
     }
 
     public static String sourceClause(String sourceSql, QueryStrategy strategy) {
-        String normalized = safeSingleStatement(sourceSql);
-        if (normalized == null) normalized = sourceSql == null ? "" : sourceSql.trim();
+        String normalized = normalizedSingleStatement(sourceSql);
         if (strategy == QueryStrategy.DIRECT_REWRITE) {
             int fromIndex = topLevelFromIndex(normalized);
             if (fromIndex >= 0) return normalized.substring(fromIndex + 4).trim();
@@ -162,19 +165,123 @@ public final class DBeaverSqlDialectService {
     }
 
     /**
-     * Trims the source SQL and rejects it (returns {@code null}) unless it is safely a
-     * single statement: no SQL comments (which could hide terminators or keywords from
-     * this lightweight scan) and no statement terminator other than one optional trailing
-     * semicolon.
+     * Returns one safe statement with comments and its one optional trailing terminator
+     * removed. Comment markers and semicolons inside quoted values/identifiers remain data.
      */
-    private static String safeSingleStatement(String sourceSql) {
-        if (sourceSql == null || sourceSql.isBlank()) return null;
-        String trimmed = sourceSql.trim();
-        if (trimmed.contains("--") || trimmed.contains("/*")) return null;
-        String withoutTerminator = trimmed.endsWith(";")
-                ? trimmed.substring(0, trimmed.length() - 1).trim() : trimmed;
-        if (withoutTerminator.contains(";")) return null;
-        return withoutTerminator;
+    static String normalizedSingleStatement(String sourceSql) {
+        if (sourceSql == null || sourceSql.isBlank()) {
+            throw new IllegalArgumentException("Original query text is unavailable.");
+        }
+        StringBuilder normalized = new StringBuilder(sourceSql.length());
+        ScanState state = ScanState.NORMAL;
+        for (int index = 0; index < sourceSql.length(); index++) {
+            char current = sourceSql.charAt(index);
+            char next = index + 1 < sourceSql.length() ? sourceSql.charAt(index + 1) : '\0';
+            switch (state) {
+                case NORMAL -> {
+                    if (current == '-' && next == '-') {
+                        normalized.append(' ');
+                        index++;
+                        normalized.append(' ');
+                        state = ScanState.LINE_COMMENT;
+                    } else if (current == '/' && next == '*') {
+                        normalized.append(' ');
+                        index++;
+                        normalized.append(' ');
+                        state = ScanState.BLOCK_COMMENT;
+                    } else {
+                        normalized.append(current);
+                        if (current == '\'') state = ScanState.SINGLE_QUOTE;
+                        else if (current == '"') state = ScanState.DOUBLE_QUOTE;
+                        else if (current == '`') state = ScanState.BACKTICK_QUOTE;
+                        else if (current == '[') state = ScanState.BRACKET_QUOTE;
+                    }
+                }
+                case LINE_COMMENT -> {
+                    if (current == '\n' || current == '\r') {
+                        normalized.append(current);
+                        state = ScanState.NORMAL;
+                    } else normalized.append(' ');
+                }
+                case BLOCK_COMMENT -> {
+                    if (current == '*' && next == '/') {
+                        normalized.append(' ');
+                        index++;
+                        normalized.append(' ');
+                        state = ScanState.NORMAL;
+                    } else normalized.append(current == '\n' || current == '\r' ? current : ' ');
+                }
+                case SINGLE_QUOTE, DOUBLE_QUOTE, BACKTICK_QUOTE, BRACKET_QUOTE -> {
+                    normalized.append(current);
+                    char closing = switch (state) {
+                        case SINGLE_QUOTE -> '\'';
+                        case DOUBLE_QUOTE -> '"';
+                        case BACKTICK_QUOTE -> '`';
+                        case BRACKET_QUOTE -> ']';
+                        default -> throw new IllegalStateException();
+                    };
+                    if (current == closing) {
+                        if (next == closing) {
+                            normalized.append(next);
+                            index++;
+                        } else state = ScanState.NORMAL;
+                    }
+                }
+            }
+        }
+        if (state != ScanState.NORMAL && state != ScanState.LINE_COMMENT) {
+            throw new IllegalArgumentException("Original query contains an unterminated quote or block comment.");
+        }
+
+        String value = normalized.toString().trim();
+        int trailingSemicolon = trailingTerminatorIndex(value);
+        if (trailingSemicolon >= 0) value = value.substring(0, trailingSemicolon).trim();
+        if (containsTopLevelTerminator(value)) {
+            throw new IllegalArgumentException("Source Query accepts exactly one SQL statement.");
+        }
+        if (value.isBlank()) throw new IllegalArgumentException("Original query text is unavailable.");
+        return value;
+    }
+
+    private enum ScanState {
+        NORMAL, SINGLE_QUOTE, DOUBLE_QUOTE, BACKTICK_QUOTE, BRACKET_QUOTE,
+        LINE_COMMENT, BLOCK_COMMENT
+    }
+
+    private static int trailingTerminatorIndex(String sql) {
+        if (sql.isEmpty() || sql.charAt(sql.length() - 1) != ';') return -1;
+        return isOutsideQuotes(sql, sql.length() - 1) ? sql.length() - 1 : -1;
+    }
+
+    private static boolean containsTopLevelTerminator(String sql) {
+        for (int index = 0; index < sql.length(); index++) {
+            if (sql.charAt(index) == ';' && isOutsideQuotes(sql, index)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isOutsideQuotes(String sql, int target) {
+        ScanState state = ScanState.NORMAL;
+        for (int index = 0; index <= target; index++) {
+            char current = sql.charAt(index);
+            char next = index + 1 < sql.length() ? sql.charAt(index + 1) : '\0';
+            if (state == ScanState.NORMAL) {
+                if (current == '\'') state = ScanState.SINGLE_QUOTE;
+                else if (current == '"') state = ScanState.DOUBLE_QUOTE;
+                else if (current == '`') state = ScanState.BACKTICK_QUOTE;
+                else if (current == '[') state = ScanState.BRACKET_QUOTE;
+                else if (index == target) return true;
+            } else {
+                char closing = state == ScanState.SINGLE_QUOTE ? '\''
+                        : state == ScanState.DOUBLE_QUOTE ? '"'
+                        : state == ScanState.BACKTICK_QUOTE ? '`' : ']';
+                if (current == closing) {
+                    if (next == closing) index++;
+                    else state = ScanState.NORMAL;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -184,17 +291,24 @@ public final class DBeaverSqlDialectService {
      */
     private static int topLevelFromIndex(String sql) {
         int depth = 0;
-        boolean inString = false;
+        ScanState state = ScanState.NORMAL;
         for (int i = 0; i < sql.length(); i++) {
             char c = sql.charAt(i);
-            if (inString) {
-                if (c == '\'') {
-                    if (i + 1 < sql.length() && sql.charAt(i + 1) == '\'') { i++; continue; }
-                    inString = false;
+            char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
+            if (state != ScanState.NORMAL) {
+                char closing = state == ScanState.SINGLE_QUOTE ? '\''
+                        : state == ScanState.DOUBLE_QUOTE ? '"'
+                        : state == ScanState.BACKTICK_QUOTE ? '`' : ']';
+                if (c == closing) {
+                    if (next == closing) i++;
+                    else state = ScanState.NORMAL;
                 }
                 continue;
             }
-            if (c == '\'') { inString = true; continue; }
+            if (c == '\'') { state = ScanState.SINGLE_QUOTE; continue; }
+            if (c == '"') { state = ScanState.DOUBLE_QUOTE; continue; }
+            if (c == '`') { state = ScanState.BACKTICK_QUOTE; continue; }
+            if (c == '[') { state = ScanState.BRACKET_QUOTE; continue; }
             if (c == '(') { depth++; continue; }
             if (c == ')') { depth--; continue; }
             if (depth == 0 && isWordAt(sql, i, "FROM")) return i;
@@ -222,4 +336,3 @@ public final class DBeaverSqlDialectService {
         return leftBoundary && rightBoundary;
     }
 }
-

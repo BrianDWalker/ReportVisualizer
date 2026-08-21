@@ -87,22 +87,53 @@ public class AggregateQueryBuilderTest {
         assertTrue(query.sql().contains("rv_source"));
     }
 
-    @Test public void fallsBackWhenSourceSqlHasAStackedSecondStatement() {
-        AggregateQuery query = AggregateQueryBuilder.buildQuery(
-                "SELECT order_dt, revenue FROM sales; DROP TABLE sales;",
-                snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
-                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
-        assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DERIVED_TABLE_FALLBACK);
-        assertTrue(!query.sql().contains("DROP TABLE") || query.sql().contains("rv_source"));
-        assertTrue(query.sql().contains("rv_source"));
+    @Test public void rejectsSourceSqlWithAStackedSecondStatement() {
+        try {
+            AggregateQueryBuilder.buildQuery(
+                    "SELECT order_dt, revenue FROM sales; DROP TABLE sales;",
+                    snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                    List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+            fail("Expected multi-statement SQL to be rejected");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("exactly one SQL statement"));
+        }
     }
 
-    @Test public void fallsBackWhenSourceSqlContainsAComment() {
+    @Test public void safelyRemovesASourceSqlComment() {
         AggregateQuery query = AggregateQueryBuilder.buildQuery(
                 "SELECT order_dt, revenue FROM sales -- trailing comment\n",
                 snapshot(), new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
                 List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+        assertTrue(query.sql().contains("FROM sales"));
+        assertTrue(!query.sql().contains("trailing comment"));
+    }
+
+    @Test public void wrapsSQLiteGroupingWithCommentsFunctionsAndATrailingSemicolon() {
+        String source = """
+                SELECT strftime('%Y-%m', order_dt) AS order_dt, region, SUM(revenue) AS revenue
+                FROM sales
+                -- WHERE revenue > 0
+                /* SQLite aggregate source */
+                GROUP BY strftime('%Y-%m', order_dt), region;
+                """;
+        AggregateQuery query = AggregateQueryBuilder.buildQuery(source, snapshot(),
+                new VisualizationConfiguration(ChartType.BAR, 0, 1, 2, Aggregation.SUM),
+                List.of(AggregateQueryBuilder.resultDimension(snapshot(), 0)), List.of(), List.of());
+
         assertTrue(query.strategy() == DBeaverSqlDialectService.QueryStrategy.DERIVED_TABLE_FALLBACK);
+        assertTrue(query.sql().contains("strftime('%Y-%m', order_dt)"));
+        assertTrue(query.sql().contains("GROUP BY strftime('%Y-%m', order_dt), region"));
+        assertTrue(!query.sql().contains("WHERE revenue > 0"));
+        assertTrue(!query.sql().contains(";\n) rv_source"));
+    }
+
+    @Test public void preservesCommentMarkersAndSemicolonsInsideQuotedStrings() {
+        String normalized = DBeaverSqlDialectService.normalizedSingleStatement(
+                "SELECT '-- not a comment', '/* neither */', ';' FROM sales;");
+        assertTrue(normalized.contains("'-- not a comment'"));
+        assertTrue(normalized.contains("'/* neither */'"));
+        assertTrue(normalized.contains("';'"));
+        assertTrue(!normalized.endsWith(";"));
     }
 
     @Test public void directRewriteMarksOptimizedStrategyOnAggregateQuery() {

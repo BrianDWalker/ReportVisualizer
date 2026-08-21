@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '21'
@@ -38,12 +38,12 @@ jobs:
           echo "Resolved against DBeaver CE $version (via the floating 'latest' update site)"
           echo "$version" > dbeaver-core-version.txt
       - name: Upload clean p2 repository
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: results-visualizer-p2
           path: releng/com.brianwalker.dbeaver.resultsvisualizer.repository/target/repository/
       - name: Upload resolved DBeaver version marker
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dbeaver-core-version
           path: dbeaver-core-version.txt

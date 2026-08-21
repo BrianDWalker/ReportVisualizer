@@ -21,6 +21,8 @@ import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSetServices;
 import com.brianwalker.dbeaver.resultsvisualizer.services.ResultSource;
 import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateQueryBuilder;
 import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateQuery;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateExecutionRequest;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateRequestCorrelation;
 import com.brianwalker.dbeaver.resultsvisualizer.services.CustomSqlDimension;
 import com.brianwalker.dbeaver.resultsvisualizer.services.QueryDimension;
 import com.brianwalker.dbeaver.resultsvisualizer.services.QueryMeasure;
@@ -31,12 +33,16 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartCanvas;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDataBuilder;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartRendererRegistry;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartType;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDisplayOptions;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationConfiguration;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SlicerDefinition;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSlicer;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SnapshotSorter;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.SortRule;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixDisplayOptions;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyLevel;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyProjector;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchySelection;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationExportService;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationExportService.ExportFormat;
 import java.util.ArrayList;
@@ -82,6 +88,7 @@ public final class ResultsVisualizerView extends ViewPart {
     private final VisualizerPresetStore presetStore = new VisualizerPresetStore();
     private final List<CalculatedFieldDefinition> calculatedFields = new ArrayList<>();
     private final List<SlicerDefinition> slicers = new ArrayList<>();
+    private final List<DateHierarchySelection> dateHierarchies = new ArrayList<>();
     private final List<CustomSqlDimension> customSqlDimensions = new ArrayList<>();
     private List<SortRule> sortRules = new ArrayList<>();
 
@@ -96,6 +103,8 @@ public final class ResultsVisualizerView extends ViewPart {
     private Button addCalculatedFieldButton;
     private Label calculatedFieldStatus;
     private Button slicersButton;
+    private Button valuesButton;
+    private Button hierarchyButton;
     private Button sourceQueryButton;
     private Button sortButton;
     private Button backToOriginalButton;
@@ -125,7 +134,8 @@ public final class ResultsVisualizerView extends ViewPart {
     private DimensionChoice activeXChoice;
     private DimensionChoice activeSeriesChoice;
     private MatrixDisplayOptions matrixOptions = MatrixDisplayOptions.DEFAULT;
-    private AggregateQuery pendingAggregateQuery;
+    private AggregateQuery aggregateQuery;
+    private AggregateExecutionRequest pendingAggregateRequest;
     private ResultSetSnapshot snapshot;
     private ResultSetSnapshot baseSnapshot;
     private ResultSetSnapshot aggregateSnapshot;
@@ -134,6 +144,8 @@ public final class ResultsVisualizerView extends ViewPart {
     private boolean configurationInitialized;
     private ResultSetService resultSetService;
     private String activeSessionIdentity = "";
+    private long sourceGeneration;
+    private long nextAggregateRequestId;
     private VisualizerSession.DisplayMode displayMode = VisualizerSession.DisplayMode.SOURCE;
 
     @Override
@@ -270,13 +282,26 @@ public final class ResultsVisualizerView extends ViewPart {
         GridData matrixOptionsData = new GridData(SWT.LEFT, SWT.CENTER, false, false);
         matrixOptionsData.horizontalSpan = 3;
         matrixOptionsBar.setLayoutData(matrixOptionsData);
-        GridLayout matrixOptionsLayout = new GridLayout(3, false);
+        GridLayout matrixOptionsLayout = new GridLayout(6, false);
         matrixOptionsLayout.marginWidth = 0;
         matrixOptionsLayout.marginHeight = 0;
         matrixOptionsBar.setLayout(matrixOptionsLayout);
         rowTotalsButton = matrixOption(matrixOptionsBar, "Row totals", matrixOptions.rowTotals());
         columnTotalsButton = matrixOption(matrixOptionsBar, "Column totals", matrixOptions.columnTotals());
         subtotalsButton = matrixOption(matrixOptionsBar, "Subtotals", matrixOptions.subtotals());
+        Button matrixOptionsButton = new Button(matrixOptionsBar, SWT.PUSH);
+        matrixOptionsButton.setText("Matrix Options…");
+        matrixOptionsButton.addListener(SWT.Selection, event -> openMatrixOptionsDialog());
+        Button collapseMatrix = new Button(matrixOptionsBar, SWT.PUSH);
+        collapseMatrix.setText("− Collapse");
+        collapseMatrix.setToolTipText("Collapse the first Matrix row hierarchy level");
+        collapseMatrix.addListener(SWT.Selection, event -> collapseMatrixRows());
+        Button expandMatrix = new Button(matrixOptionsBar, SWT.PUSH);
+        expandMatrix.setText("+ Expand");
+        expandMatrix.setToolTipText("Expand all Matrix row hierarchy paths");
+        expandMatrix.addListener(SWT.Selection, event -> {
+            matrixOptions = matrixOptions.withCollapsedRowPaths(java.util.Set.of()); updateChart();
+        });
         setVisible(matrixConfiguration, false);
 
         Composite actionBand = new Composite(configurationGroup, SWT.NONE);
@@ -289,7 +314,7 @@ public final class ResultsVisualizerView extends ViewPart {
 
         Composite localActions = new Composite(actionBand, SWT.NONE);
         localActions.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout localLayout = new GridLayout(3, false);
+        GridLayout localLayout = new GridLayout(6, false);
         localLayout.marginWidth = 0;
         localLayout.marginHeight = 0;
         localLayout.horizontalSpacing = 4;
@@ -300,6 +325,14 @@ public final class ResultsVisualizerView extends ViewPart {
         addCalculatedFieldButton.setEnabled(false);
         setAccessibleName(addCalculatedFieldButton, "Manage Local Calculated Fields");
         addCalculatedFieldButton.addListener(SWT.Selection, event -> openCalculatedFieldManager());
+        valuesButton = new Button(localActions, SWT.PUSH);
+        valuesButton.setText("Values…");
+        valuesButton.setToolTipText("Choose one or more chart measures");
+        valuesButton.addListener(SWT.Selection, event -> openValuesDialog());
+        Button chartOptionsButton = new Button(localActions, SWT.PUSH);
+        chartOptionsButton.setText("Options…");
+        chartOptionsButton.setToolTipText("Set labels, markers, legend, and pie display options");
+        chartOptionsButton.addListener(SWT.Selection, event -> openChartOptionsDialog());
         slicersButton = new Button(localActions, SWT.PUSH);
         slicersButton.setText("Slicer ▾");
         slicersButton.setToolTipText("Add or edit a slicer, or clear all active slicers");
@@ -309,6 +342,10 @@ public final class ResultsVisualizerView extends ViewPart {
             addMenuItem(menu, "Clear Slicers", "Remove all active slicers",
                     () -> { slicers.clear(); updateSlicerLabel(); updateChart(); });
         }));
+        hierarchyButton = new Button(localActions, SWT.PUSH);
+        hierarchyButton.setText("Date Level ▾");
+        hierarchyButton.setToolTipText("Drill the selected date hierarchy up or down");
+        hierarchyButton.addListener(SWT.Selection, event -> showHierarchyMenu());
         Button savePreset = new Button(localActions, SWT.PUSH);
         savePreset.setText("Presets ▾");
         savePreset.setToolTipText("Save, load, or delete a saved chart layout preset for this result shape");
@@ -442,11 +479,37 @@ public final class ResultsVisualizerView extends ViewPart {
         button.setText(text);
         button.setSelection(selected);
         button.addListener(SWT.Selection, event -> {
-            matrixOptions = new MatrixDisplayOptions(rowTotalsButton.getSelection(),
+            matrixOptions = matrixOptions.withTotals(rowTotalsButton.getSelection(),
                     columnTotalsButton.getSelection(), subtotalsButton.getSelection());
             updateChart();
         });
         return button;
+    }
+
+    private void openMatrixOptionsDialog() {
+        if (snapshot == null) return;
+        MatrixOptionsDialog dialog = new MatrixOptionsDialog(content.getShell(), matrixOptions,
+                Math.max(1, matrixRows.size()));
+        if (dialog.open() != Window.OK) return;
+        matrixOptions = dialog.options();
+        rowTotalsButton.setSelection(matrixOptions.rowTotals());
+        columnTotalsButton.setSelection(matrixOptions.columnTotals());
+        subtotalsButton.setSelection(matrixOptions.subtotals());
+        updateChart();
+    }
+
+    private void collapseMatrixRows() {
+        if (snapshot == null || matrixRows.size() < 2) return;
+        int index = matrixRows.get(0).resultIndex();
+        ResultSetSnapshot hierarchySnapshot = DateHierarchyProjector.apply(snapshot, dateHierarchies);
+        java.util.Set<String> paths = new java.util.LinkedHashSet<>();
+        for (var row : hierarchySnapshot.rows()) if (index >= 0 && index < row.values().size()) {
+            Object value = row.values().get(index);
+            paths.add(com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixChartRenderer.path(
+                    java.util.List.of(value == null ? "(null)" : value.toString())));
+        }
+        matrixOptions = matrixOptions.withCollapsedRowPaths(paths);
+        updateChart();
     }
 
     private Combo createWell(Composite parent, String title, FieldRole role) {
@@ -508,9 +571,6 @@ public final class ResultsVisualizerView extends ViewPart {
         switch (update.status()) {
             case LOADING -> showMessage("Reading the active result set...");
             case NO_ACTIVE_RESULT -> {
-                pendingAggregateQuery = null;
-                aggregateSnapshot = null;
-                displayMode = VisualizerSession.DisplayMode.SOURCE;
                 if (!activeSessionIdentity.isBlank()) {
                     persistCurrentSessionState(activeSessionIdentity);
                     activeSessionIdentity = "";
@@ -518,20 +578,62 @@ public final class ResultsVisualizerView extends ViewPart {
                 DBeaverSqlDialectService.clearQuoteString();
                 showMessage(update.message());
             }
-            case ERROR -> {
-                pendingAggregateQuery = null;
-                showMessage(update.message());
-            }
-            case READY -> {
-                if (pendingAggregateQuery != null) {
-                    aggregateSnapshot = update.snapshot();
-                    displayMode = VisualizerSession.DisplayMode.AGGREGATE;
-                    showAggregateSnapshot(aggregateSnapshot);
-                    return;
-                }
-                showBaseSnapshot(update.snapshot());
-            }
+            case ERROR -> showMessage(update.message());
+            case READY -> showBaseSnapshot(update.snapshot());
+            case AGGREGATE_READY, AGGREGATE_ERROR, AGGREGATE_CANCELLED ->
+                    applyAggregateUpdate(update);
         }
+    }
+
+    private void applyAggregateUpdate(ResultSetUpdate update) {
+        AggregateExecutionRequest request = update.aggregateRequest();
+        VisualizerSession target = visualizerSessionManager.get(request.sessionIdentity()).orElse(null);
+        if (!AggregateRequestCorrelation.matches(target, request)) {
+            return; // stale request, evicted session, or source rerun
+        }
+
+        boolean active = sameSession(activeSessionIdentity, request.sessionIdentity());
+        if (update.status() != ResultSetUpdate.Status.AGGREGATE_READY) {
+            visualizerSessionManager.update(request.sessionIdentity(), session ->
+                    AggregateRequestCorrelation.sameRequest(session.pendingAggregateRequest(), request)
+                            ? session.withPendingAggregateRequest(null) : session);
+            if (active && AggregateRequestCorrelation.sameRequest(pendingAggregateRequest, request)) {
+                pendingAggregateRequest = null;
+                summaryLabel.setText(update.message());
+                persistCurrentSessionState(activeSessionIdentity);
+            }
+            return;
+        }
+
+        var binding = AggregateResultBinding.bind(target.configuration(), request.query(), update.snapshot());
+        if (binding.isEmpty()) {
+            visualizerSessionManager.update(request.sessionIdentity(), session ->
+                    session.withPendingAggregateRequest(null));
+            if (active) {
+                pendingAggregateRequest = null;
+                summaryLabel.setText("Source Query result did not contain the expected output fields.");
+            }
+            return;
+        }
+        visualizerSessionManager.update(request.sessionIdentity(), session -> session
+                .withAggregateSnapshot(update.snapshot())
+                .withConfiguration(binding.get().configuration())
+                .withAggregateQuery(request.query())
+                .withPendingAggregateRequest(null)
+                .withDisplayMode(VisualizerSession.DisplayMode.AGGREGATE));
+        if (!active) return;
+
+        pendingAggregateRequest = null;
+        aggregateQuery = request.query();
+        configuration = target.configuration();
+        aggregateSnapshot = update.snapshot();
+        displayMode = VisualizerSession.DisplayMode.AGGREGATE;
+        showAggregateSnapshot(aggregateSnapshot);
+    }
+
+    private boolean sameSession(String left, String right) {
+        return visualizerSessionManager.sessionIdFor(left)
+                .equals(visualizerSessionManager.sessionIdFor(right));
     }
 
     private void showMessage(String message) {
@@ -571,6 +673,9 @@ public final class ResultsVisualizerView extends ViewPart {
             displayMode = VisualizerSession.DisplayMode.SOURCE;
             aggregateSnapshot = null;
             sourceConfigurationBeforeAggregate = null;
+            aggregateQuery = null;
+            pendingAggregateRequest = null;
+            sourceGeneration++;
         }
         CalculatedFieldProjection projection =
                 calculatedFieldService.project(newBaseSnapshot, calculatedFields);
@@ -597,7 +702,7 @@ public final class ResultsVisualizerView extends ViewPart {
         displayMode = VisualizerSession.DisplayMode.AGGREGATE;
         aggregateSnapshot = aggregateResult;
         snapshot = aggregateResult;
-        if (applyPendingAggregateResult(aggregateResult)) {
+        if (applyAggregateResult(aggregateQuery, aggregateResult)) {
             configurationInitialized = true;
         }
         initializeDimensionSelections(aggregateResult);
@@ -635,6 +740,7 @@ public final class ResultsVisualizerView extends ViewPart {
         }
         displayMode = VisualizerSession.DisplayMode.SOURCE;
         renderSourceView(baseSnapshot);
+        persistCurrentSessionState(activeSessionIdentity);
     }
 
     private void updateDisplayModeControls() {
@@ -644,6 +750,12 @@ public final class ResultsVisualizerView extends ViewPart {
         if (shouldShow) {
             summaryLabel.setText((summaryLabel.getText().contains("Aggregate") ? summaryLabel.getText() : "Viewing: Aggregate Result")
                     + "   [Back to Original]");
+        }
+        if (aggregationCombo != null && !aggregationCombo.isDisposed()) {
+            aggregationCombo.setEnabled(!shouldShow);
+            aggregationCombo.setToolTipText(shouldShow
+                    ? "Source Query fixes aggregate semantics. Change them by executing a new Source Query."
+                    : null);
         }
     }
 
@@ -679,10 +791,14 @@ public final class ResultsVisualizerView extends ViewPart {
                 .withBaseSnapshot(baseSnapshot)
                 .withAggregateSnapshot(aggregateSnapshot)
                 .withConfiguration(configuration)
+                .withSourceConfigurationBeforeAggregate(sourceConfigurationBeforeAggregate)
                 .withMatrixOptions(matrixOptions)
-                .withAggregateQuery(pendingAggregateQuery)
+                .withAggregateQuery(aggregateQuery)
+                .withPendingAggregateRequest(pendingAggregateRequest)
+                .withSourceGeneration(sourceGeneration)
                 .withCalculatedFields(new ArrayList<>(calculatedFields))
                 .withSlicers(new ArrayList<>(slicers))
+                .withDateHierarchies(new ArrayList<>(dateHierarchies))
                 .withSortRules(new ArrayList<>(sortRules))
                 .withCustomSqlDimensions(new ArrayList<>(customSqlDimensions))
                 .withDisplayMode(displayMode));
@@ -696,12 +812,17 @@ public final class ResultsVisualizerView extends ViewPart {
         configuration = session.configuration();
         configurationInitialized = configuration != null;
         matrixOptions = session.matrixOptions();
-        pendingAggregateQuery = session.aggregateQuery();
+        sourceConfigurationBeforeAggregate = session.sourceConfigurationBeforeAggregate();
+        aggregateQuery = session.aggregateQuery();
+        pendingAggregateRequest = session.pendingAggregateRequest();
+        sourceGeneration = session.sourceGeneration();
         displayMode = session.displayMode() == null ? VisualizerSession.DisplayMode.SOURCE : session.displayMode();
         calculatedFields.clear();
         calculatedFields.addAll(session.calculatedFields());
         slicers.clear();
         slicers.addAll(session.slicers());
+        dateHierarchies.clear();
+        dateHierarchies.addAll(session.dateHierarchies());
         sortRules = new ArrayList<>(session.sortRules());
         customSqlDimensions.clear();
         customSqlDimensions.addAll(session.customSqlDimensions());
@@ -717,15 +838,16 @@ public final class ResultsVisualizerView extends ViewPart {
         snapshot = newSnapshot;
         slicers.removeIf(slicer -> newSnapshot.columns().stream().noneMatch(column ->
                 column.displayName().equalsIgnoreCase(slicer.fieldName())));
+        dateHierarchies.removeIf(selection -> selection.fieldIndex() < 0
+                || selection.fieldIndex() >= newSnapshot.columns().size()
+                || !isDateColumn(newSnapshot, selection.fieldIndex()));
         updateSlicerLabel();
         addCalculatedFieldButton.setEnabled(true);
         if (newSnapshot.columns().isEmpty()) {
             showMessage("The active result set has no columns.");
             return;
         }
-        if (applyPendingAggregateResult(newSnapshot)) {
-            configurationInitialized = true;
-        } else if (!configurationInitialized) {
+        if (!configurationInitialized) {
             configuration = ChartDataBuilder.defaultVisualization(newSnapshot);
             configurationInitialized = true;
         } else if (!isCompatible(previous, newSnapshot, configuration)) {
@@ -772,7 +894,7 @@ public final class ResultsVisualizerView extends ViewPart {
             return;
         }
         presetStore.save(name, baseSnapshot == null ? snapshot : baseSnapshot, configuration, matrixOptions,
-                resultIndexes(matrixValues), slicers, sortRules, calculatedFields);
+                resultIndexes(matrixValues), slicers, dateHierarchies, sortRules, calculatedFields);
         MessageDialog.openInformation(content.getShell(), "Preset saved",
                 "Saved '" + name + "' for '" + snapshot.sourceName() + "'.");
     }
@@ -791,6 +913,8 @@ public final class ResultsVisualizerView extends ViewPart {
         calculatedFields.addAll(loaded.calculatedFields());
         slicers.clear();
         slicers.addAll(loaded.slicers());
+        dateHierarchies.clear();
+        dateHierarchies.addAll(loaded.dateHierarchies());
         sortRules = new ArrayList<>(loaded.sortRules());
         if (baseSnapshot != null) {
             CalculatedFieldProjection projection = calculatedFieldService.project(baseSnapshot, calculatedFields);
@@ -907,6 +1031,14 @@ public final class ResultsVisualizerView extends ViewPart {
         }
         int selection = availableAggregations.indexOf(configuration.aggregation());
         aggregationCombo.select(selection < 0 ? 0 : selection);
+        updateValuesButton();
+    }
+
+    private void updateValuesButton() {
+        if (valuesButton == null || valuesButton.isDisposed() || configuration == null) return;
+        int count = configuration.valueColumnIndexes().size();
+        valuesButton.setText(count <= 1 ? "Values…" : "Values (" + count + ")…");
+        valuesButton.getParent().layout(true, true);
     }
 
     private void assignRole(FieldRole role, int index) {
@@ -928,10 +1060,12 @@ public final class ResultsVisualizerView extends ViewPart {
             if (role == FieldRole.X) {
                 activeXChoice = choice;
                 matrixRows = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+                synchronizeDateHierarchies(matrixRows);
                 configuration = configuration.withXColumns(resultIndexes(matrixRows));
             } else {
                 activeSeriesChoice = choice;
                 matrixColumns = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+                synchronizeDateHierarchies(matrixColumns);
                 configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
             }
         }
@@ -940,8 +1074,29 @@ public final class ResultsVisualizerView extends ViewPart {
         updateChart();
     }
 
+    private void openValuesDialog() {
+        if (snapshot == null || configuration == null) return;
+        ValuesDialog dialog = new ValuesDialog(content.getShell(), snapshot,
+                configuration.valueColumnIndexes());
+        if (dialog.open() != Window.OK) return;
+        configuration = configuration.withValues(dialog.selected());
+        matrixValues = new ArrayList<>(dialog.selected().stream()
+                .map(index -> DimensionChoice.result(snapshot, index)).toList());
+        populateControls(snapshot);
+        updateChart();
+    }
+
+    private void openChartOptionsDialog() {
+        if (configuration == null) return;
+        ChartOptionsDialog dialog = new ChartOptionsDialog(content.getShell(), configuration.displayOptions());
+        if (dialog.open() != Window.OK) return;
+        configuration = configuration.withDisplayOptions(dialog.options());
+        updateChart();
+    }
+
     private void selectNumericXForScatter() {
-        if (snapshot == null || configuration.chartType() != ChartType.SCATTER) return;
+        if (snapshot == null || (configuration.chartType() != ChartType.SCATTER
+                && configuration.chartType() != ChartType.BUBBLE)) return;
         int x = configuration.xColumnIndex();
         if (x >= 0 && ChartDataBuilder.isNumeric(snapshot.columns().get(x))) return;
         int numericX = ChartDataBuilder.firstNumericColumn(
@@ -961,6 +1116,7 @@ public final class ResultsVisualizerView extends ViewPart {
         matrixRows.clear();
         matrixColumns.clear();
         matrixValues.clear();
+        dateHierarchies.clear();
         sortRules = new ArrayList<>();
         updateSortButton();
         populateControls(snapshot);
@@ -969,6 +1125,7 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void setMatrixRows(List<DimensionChoice> choices) {
         matrixRows = new ArrayList<>(choices);
+        synchronizeDateHierarchies(matrixRows);
         activeXChoice = matrixRows.isEmpty() ? null : matrixRows.get(0);
         configuration = configuration.withXColumns(resultIndexes(matrixRows));
         updateChart();
@@ -976,6 +1133,7 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void setMatrixColumns(List<DimensionChoice> choices) {
         matrixColumns = new ArrayList<>(choices);
+        synchronizeDateHierarchies(matrixColumns);
         activeSeriesChoice = matrixColumns.isEmpty() ? null : matrixColumns.get(0);
         configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
         updateChart();
@@ -1003,29 +1161,29 @@ public final class ResultsVisualizerView extends ViewPart {
         if (activeXChoice == null || (!activeXChoice.isCustom()
                 && activeXChoice.resultIndex() >= value.columns().size())) {
             activeXChoice = configuration.xColumnIndex() < 0 ? null
-                    : DimensionChoice.result(value, configuration.xColumnIndex());
+                    : dimensionChoice(value, configuration.xColumnIndex());
         }
         if (activeSeriesChoice == null || (!activeSeriesChoice.isCustom()
                 && activeSeriesChoice.resultIndex() >= value.columns().size())) {
             activeSeriesChoice = configuration.seriesColumnIndex() < 0 ? null
-                    : DimensionChoice.result(value, configuration.seriesColumnIndex());
+                    : dimensionChoice(value, configuration.seriesColumnIndex());
         }
         if (matrixRows.isEmpty()) {
             matrixRows = configuration.xColumnIndexes().stream()
-                    .map(index -> DimensionChoice.result(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                    .map(index -> dimensionChoice(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         }
         if (matrixColumns.isEmpty()) {
             matrixColumns = configuration.seriesColumnIndexes().stream()
-                    .map(index -> DimensionChoice.result(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                    .map(index -> dimensionChoice(value, index)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         }
         if (matrixValues.isEmpty() && configuration.valueColumnIndex() >= 0) {
             matrixValues.add(DimensionChoice.result(value, configuration.valueColumnIndex()));
         }
     }
 
-    private boolean applyPendingAggregateResult(ResultSetSnapshot value) {
-        if (pendingAggregateQuery == null) return false;
-        var binding = AggregateResultBinding.bind(configuration, pendingAggregateQuery, value);
+    private boolean applyAggregateResult(AggregateQuery query, ResultSetSnapshot value) {
+        if (query == null) return false;
+        var binding = AggregateResultBinding.bind(configuration, query, value);
         if (binding.isEmpty()) return false;
         configuration = binding.get().configuration();
         activeXChoice = binding.get().rows().isEmpty() ? null : DimensionChoice.result(value, binding.get().rows().get(0));
@@ -1036,7 +1194,6 @@ public final class ResultsVisualizerView extends ViewPart {
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
         matrixValues = binding.get().values().stream().map(index -> DimensionChoice.result(value, index))
                 .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        pendingAggregateQuery = null;
         return true;
     }
 
@@ -1057,12 +1214,26 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private List<DimensionChoice> dimensionChoices(ResultSetSnapshot value) {
         List<DimensionChoice> choices = new ArrayList<>();
-        for (int index = 0; index < value.columns().size(); index++) choices.add(DimensionChoice.result(value, index));
+        for (int index = 0; index < value.columns().size(); index++) {
+            choices.add(DimensionChoice.result(value, index));
+            NormalizedDataType type = value.columns().get(index).normalizedType();
+            if (type == NormalizedDataType.DATE || type == NormalizedDataType.DATETIME) {
+                for (DateHierarchyLevel level : DateHierarchyLevel.values()) {
+                    choices.add(DimensionChoice.dateHierarchy(value, index, level));
+                }
+            }
+        }
         customSqlDimensions.stream()
                 .filter(dimension -> value.columns().stream().noneMatch(column ->
                         column.displayName().equalsIgnoreCase(dimension.name())))
                 .map(DimensionChoice::custom).forEach(choices::add);
         return List.copyOf(choices);
+    }
+
+    private DimensionChoice dimensionChoice(ResultSetSnapshot value, int index) {
+        return dateHierarchies.stream().filter(selection -> selection.fieldIndex() == index).findFirst()
+                .map(selection -> DimensionChoice.dateHierarchy(value, index, selection.level()))
+                .orElseGet(() -> DimensionChoice.result(value, index));
     }
 
     private static void populateDimensionWell(Combo well, List<DimensionChoice> choices,
@@ -1081,12 +1252,61 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private static boolean sameChoice(DimensionChoice left, DimensionChoice right) {
         return left.displayName().equalsIgnoreCase(right.displayName())
-                && left.isCustom() == right.isCustom();
+                && left.isCustom() == right.isCustom()
+                && java.util.Objects.equals(left.dateHierarchy(), right.dateHierarchy());
     }
 
     private static List<Integer> resultIndexes(List<DimensionChoice> choices) {
         return choices.stream().filter(choice -> !choice.isCustom())
                 .map(DimensionChoice::resultIndex).toList();
+    }
+
+    private void synchronizeDateHierarchies(List<DimensionChoice> choices) {
+        for (DimensionChoice choice : choices) {
+            if (choice.isDateHierarchy()) {
+                dateHierarchies.removeIf(value -> value.fieldIndex() == choice.resultIndex());
+                dateHierarchies.add(choice.dateHierarchy());
+            } else if (!choice.isCustom() && choice.resultIndex() != null) {
+                dateHierarchies.removeIf(value -> value.fieldIndex() == choice.resultIndex());
+            }
+        }
+    }
+
+    private void showHierarchyMenu() {
+        if (snapshot == null) return;
+        DateHierarchySelection selection = activeDateHierarchy();
+        if (selection == null) {
+            MessageDialog.openInformation(content.getShell(), "Date Level",
+                    "Select a date hierarchy in X, Series, Matrix Rows, or Matrix Columns first.");
+            return;
+        }
+        showDropdownMenu(hierarchyButton, menu -> {
+            DateHierarchyLevel[] levels = DateHierarchyLevel.values();
+            int current = selection.level().ordinal();
+            if (current > 0) addMenuItem(menu, "Drill Up", "Move to a coarser date level",
+                    () -> changeDateHierarchy(selection.fieldIndex(), levels[current - 1]));
+            if (current < levels.length - 1) addMenuItem(menu, "Drill Down", "Move to a finer date level",
+                    () -> changeDateHierarchy(selection.fieldIndex(), levels[current + 1]));
+        });
+    }
+
+    private DateHierarchySelection activeDateHierarchy() {
+        if (activeXChoice != null && activeXChoice.isDateHierarchy()) return activeXChoice.dateHierarchy();
+        if (activeSeriesChoice != null && activeSeriesChoice.isDateHierarchy()) return activeSeriesChoice.dateHierarchy();
+        return dateHierarchies.isEmpty() ? null : dateHierarchies.get(0);
+    }
+
+    private void changeDateHierarchy(int fieldIndex, DateHierarchyLevel level) {
+        dateHierarchies.removeIf(selection -> selection.fieldIndex() == fieldIndex);
+        dateHierarchies.add(new DateHierarchySelection(fieldIndex, level));
+        initializeDimensionSelections(snapshot);
+        populateControls(snapshot);
+        updateChart();
+    }
+
+    private static boolean isDateColumn(ResultSetSnapshot value, int index) {
+        NormalizedDataType type = value.columns().get(index).normalizedType();
+        return type == NormalizedDataType.DATE || type == NormalizedDataType.DATETIME;
     }
 
     private static List<Integer> findColumns(ResultSetSnapshot value, List<String> names) {
@@ -1148,6 +1368,10 @@ public final class ResultsVisualizerView extends ViewPart {
     private void openSourceQueryBuilder() {
         if (snapshot == null || configuration == null) return;
         try {
+            if (!dateHierarchies.isEmpty()) {
+                MessageDialog.openInformation(content.getShell(), "Date hierarchy is local",
+                        "The selected date hierarchy is derived locally. Database-side hierarchy grouping is unavailable for this datasource, so Source Query uses the original date columns.");
+            }
             ResultSetSnapshot sourceSnapshot = baseSnapshot == null ? snapshot : baseSnapshot;
             ResultSetSnapshot querySource = calculatedFieldService.project(sourceSnapshot, calculatedFields).snapshot();
             List<QueryDimension> dimensions = baseQueryDimensions();
@@ -1168,9 +1392,13 @@ public final class ResultsVisualizerView extends ViewPart {
                 if (displayMode != VisualizerSession.DisplayMode.AGGREGATE || sourceConfigurationBeforeAggregate == null) {
                     sourceConfigurationBeforeAggregate = configuration;
                 }
-                pendingAggregateQuery = dialog.query();
+                AggregateExecutionRequest request = new AggregateExecutionRequest(
+                        activeSessionIdentity, ++nextAggregateRequestId,
+                        sourceGeneration, baseSnapshot.capturedAt(), dialog.query());
+                pendingAggregateRequest = request;
                 summaryLabel.setText("Executing source aggregate query…");
-                resultSetService.executeQuery("Results Visualizer Source Query", dialog.query().sql());
+                persistCurrentSessionState(activeSessionIdentity);
+                resultSetService.executeQuery("Results Visualizer Source Query", request);
             }
         } catch (RuntimeException error) {
             MessageDialog.openError(content.getShell(), "Cannot Build Aggregate Query", error.getMessage());
@@ -1376,13 +1604,55 @@ public final class ResultsVisualizerView extends ViewPart {
         }
         configuration = configuration.withXColumns(resultIndexes(rows))
                 .withSeriesColumns(resultIndexes(selectedColumns()));
-        ResultSetSnapshot filtered = SnapshotSorter.apply(
-                SnapshotSlicer.apply(snapshot, slicers), sortRules);
+        if (!validateAggregateReaggregation()) return;
+        ResultSetSnapshot filtered = DateHierarchyProjector.apply(SnapshotSorter.apply(
+                SnapshotSlicer.apply(snapshot, slicers), sortRules), dateHierarchies);
         var dataset = isMatrix()
                 ? ChartDataBuilder.buildMatrixValues(filtered, configuration, resultIndexes(matrixValues))
                 : ChartDataBuilder.build(filtered, configuration);
         if (isMatrix()) dataset = dataset.withMatrixOptions(matrixOptions);
         chartCanvas.setChart(configuration.chartType(), dataset);
+    }
+
+    /** Prevents lossy re-aggregation of source-level AVG/COUNT DISTINCT outputs. */
+    private boolean validateAggregateReaggregation() {
+        if (displayMode != VisualizerSession.DisplayMode.AGGREGATE
+                || aggregateQuery == null || aggregateQuery.aggregations().isEmpty()) return true;
+        List<Integer> values = isMatrix() ? resultIndexes(matrixValues)
+                : configuration.valueColumnIndexes();
+        List<String> aliases = values.stream()
+                .filter(index -> index >= 0 && index < snapshot.columns().size())
+                .map(index -> snapshot.columns().get(index).displayName()).toList();
+        boolean exactDimensions = sameNames(selectedDimensionNames(selectedRows()), aggregateQuery.rowAliases())
+                && sameNames(selectedDimensionNames(selectedColumns()), aggregateQuery.columnAliases());
+        boolean unsafe = aliases.stream().anyMatch(aggregateQuery::requiresExactDimensions);
+        if (unsafe && !exactDimensions) {
+            chartCanvas.setPrompt("AVG and COUNT DISTINCT cannot be safely combined across changed dimensions. Execute a new Source Query with the desired grouping.");
+            return false;
+        }
+        List<Aggregation> operations = aliases.stream()
+                .map(aggregateQuery::localAggregationFor).distinct().toList();
+        if (!exactDimensions && operations.size() > 1) {
+            chartCanvas.setPrompt("These aggregate outputs require different re-aggregation rules. Execute a new Source Query for the desired grouping.");
+            return false;
+        }
+        if (!aliases.isEmpty()) {
+            configuration = configuration.withAggregation(
+                    aggregateQuery.localAggregationFor(aliases.get(0)));
+        }
+        return true;
+    }
+
+    private static List<String> selectedDimensionNames(List<DimensionChoice> choices) {
+        return choices.stream().map(DimensionChoice::displayName).toList();
+    }
+
+    private static boolean sameNames(List<String> left, List<String> right) {
+        if (left.size() != right.size()) return false;
+        for (int index = 0; index < left.size(); index++) {
+            if (!left.get(index).equalsIgnoreCase(right.get(index))) return false;
+        }
+        return true;
     }
 
     private ChartType selectedChartType() {

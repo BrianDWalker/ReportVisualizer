@@ -25,10 +25,13 @@ public final class ChartRendererRegistry {
     public static ChartRendererRegistry defaults() {
         return new ChartRendererRegistry(List.of(
                 new BarChartRenderer(), new HorizontalBarChartRenderer(),
-                new StackedBarChartRenderer(), new LineChartRenderer(),
+                new StackedBarChartRenderer(),
+                new StackedBarChartRenderer(ChartType.STACKED_100_BAR, true),
+                new LineChartRenderer(), new ComboChartRenderer(),
                 new AreaChartRenderer(ChartType.AREA, false),
                 new AreaChartRenderer(ChartType.STACKED_AREA, true),
-                new ScatterChartRenderer(), new PieChartRenderer(ChartType.PIE),
+                new AreaChartRenderer(ChartType.STACKED_100_AREA, true, true),
+                new ScatterChartRenderer(), new ScatterChartRenderer(ChartType.BUBBLE, true), new PieChartRenderer(ChartType.PIE),
                 new PieChartRenderer(ChartType.DONUT),
                 new MatrixChartRenderer(ChartType.HEATMAP),
                 new MatrixChartRenderer(ChartType.MATRIX)));

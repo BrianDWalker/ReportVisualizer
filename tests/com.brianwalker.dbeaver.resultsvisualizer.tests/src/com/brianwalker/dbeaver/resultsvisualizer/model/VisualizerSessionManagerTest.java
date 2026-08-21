@@ -13,6 +13,14 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.Aggregation;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartType;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.MatrixDisplayOptions;
 import com.brianwalker.dbeaver.resultsvisualizer.visualization.VisualizationConfiguration;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateExecutionRequest;
+import com.brianwalker.dbeaver.resultsvisualizer.services.AggregateQuery;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchyLevel;
+import com.brianwalker.dbeaver.resultsvisualizer.visualization.DateHierarchySelection;
+import java.time.Instant;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 
 public class VisualizerSessionManagerTest {
@@ -71,6 +79,56 @@ public class VisualizerSessionManagerTest {
     }
 
     @Test
+    public void keepsPreAggregateConfigurationAndPendingRequestInTheirLaunchingSession() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        VisualizationConfiguration originalA = new VisualizationConfiguration(
+                ChartType.LINE, 0, 1, -1, Aggregation.AVG, 500.0);
+        AggregateExecutionRequest requestA = new AggregateExecutionRequest("results-panel-1", 17, 1,
+                Instant.EPOCH, new AggregateQuery("SELECT 1", List.of("x"), List.of(), "value"));
+
+        manager.update("results-panel-1", session -> session
+                .withSourceConfigurationBeforeAggregate(originalA)
+                .withPendingAggregateRequest(requestA));
+        manager.update("results-panel-2", session -> session.withConfiguration(
+                new VisualizationConfiguration(ChartType.PIE, 0, 1, -1, Aggregation.SUM, null)));
+
+        VisualizerSession restoredA = manager.getOrCreate("results-panel-1");
+        assertEquals(originalA, restoredA.sourceConfigurationBeforeAggregate());
+        assertEquals(requestA, restoredA.pendingAggregateRequest());
+        assertEquals(null, manager.getOrCreate("results-panel-2").sourceConfigurationBeforeAggregate());
+        assertEquals(null, manager.getOrCreate("results-panel-2").pendingAggregateRequest());
+    }
+
+    @Test
+    public void keepsCachedSnapshotsIndependentAcrossSeveralLoadedResultTabs() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        int[] loadedRows = {500, 600, 1_000};
+        for (int index = 0; index < loadedRows.length; index++) {
+            ResultSetSnapshot snapshot = snapshotWithRows(loadedRows[index]);
+            manager.update("results-panel-" + index, session -> session.withBaseSnapshot(snapshot));
+        }
+
+        for (int index = 0; index < loadedRows.length; index++) {
+            ResultSetSnapshot restored = manager.getOrCreate("results-panel-" + index).baseSnapshot();
+            assertEquals(loadedRows[index], restored.rows().size());
+            assertEquals(loadedRows[index], restored.availableRowCount());
+        }
+    }
+
+    @Test
+    public void keepsDateHierarchySelectionsIsolatedPerResultSession() {
+        VisualizerSessionManager manager = new VisualizerSessionManager();
+        List<DateHierarchySelection> firstHierarchy = List.of(new DateHierarchySelection(2, DateHierarchyLevel.MONTH));
+        manager.update("results-panel-1", session -> session.withDateHierarchies(firstHierarchy));
+        manager.update("results-panel-2", session -> session.withDateHierarchies(
+                List.of(new DateHierarchySelection(1, DateHierarchyLevel.YEAR))));
+
+        assertEquals(firstHierarchy, manager.getOrCreate("results-panel-1").dateHierarchies());
+        assertEquals(List.of(new DateHierarchySelection(1, DateHierarchyLevel.YEAR)),
+                manager.getOrCreate("results-panel-2").dateHierarchies());
+    }
+
+    @Test
     public void clearRemovesEverySession() {
         VisualizerSessionManager manager = new VisualizerSessionManager();
         manager.getOrCreate("results-panel-1");
@@ -93,5 +151,16 @@ public class VisualizerSessionManagerTest {
                 manager.get("results-panel-24").isPresent());
         assertTrue("oldest session should have been evicted",
                 manager.get("results-panel-0").isEmpty());
+    }
+
+    private static ResultSetSnapshot snapshotWithRows(int rowCount) {
+        ResultColumn column = new ResultColumn(0, "value", "value", Types.INTEGER,
+                "INTEGER", NormalizedDataType.INTEGER, Nullability.NOT_NULL);
+        List<ResultRow> rows = new ArrayList<>(rowCount);
+        for (int index = 0; index < rowCount; index++) {
+            rows.add(new ResultRow(index, List.of(index)));
+        }
+        return new ResultSetSnapshot("loaded-" + rowCount, List.of(column), rows,
+                rowCount, false, Instant.EPOCH);
     }
 }

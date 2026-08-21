@@ -69,6 +69,13 @@ public final class ChartDataBuilder {
     /** Groups and aggregates snapshot rows entirely inside the visualization layer. */
     public static ChartDataset build(
             ResultSetSnapshot snapshot, VisualizationConfiguration configuration) {
+        if (configuration.chartType() == ChartType.BUBBLE
+                && configuration.valueColumnIndexes().size() > 1) {
+            return buildBubble(snapshot, configuration);
+        }
+        if (configuration.valueColumnIndexes().size() > 1) {
+            return buildMultipleValues(snapshot, configuration);
+        }
         if (snapshot.columns().isEmpty() || !configuration.isComplete()) {
             return new ChartDataset("", "", List.of());
         }
@@ -108,7 +115,54 @@ public final class ChartDataBuilder {
                 yTitle, points, configuration.yAxisMaximum(),
                 columnNames(snapshot, configuration.xColumnIndexes()),
                 columnNames(snapshot, configuration.seriesColumnIndexes()),
-                MatrixDisplayOptions.DEFAULT);
+                MatrixDisplayOptions.DEFAULT, configuration.displayOptions());
+    }
+
+    /** Uses the first selected value for Y and the second for bubble area. */
+    private static ChartDataset buildBubble(ResultSetSnapshot snapshot,
+            VisualizationConfiguration configuration) {
+        int yIndex = configuration.valueColumnIndexes().get(0);
+        int sizeIndex = configuration.valueColumnIndexes().get(1);
+        ChartDataset values = build(snapshot, configuration.withValues(List.of(yIndex)));
+        ChartDataset sizes = build(snapshot, configuration.withValues(List.of(sizeIndex)));
+        List<ChartPoint> points = new ArrayList<>();
+        for (ChartPoint point : values.points()) {
+            Double size = sizes.points().stream()
+                    .filter(candidate -> candidate.label().equals(point.label())
+                            && candidate.series().equals(point.series()))
+                    .map(ChartPoint::y).findFirst().orElse(null);
+            points.add(new ChartPoint(point.label(), point.numericX(), point.y(), point.series(),
+                    point.rowLevels(), point.columnLevels(), size));
+        }
+        String sizeName = snapshot.columns().get(sizeIndex).displayName();
+        return new ChartDataset(values.xAxisTitle(), values.yAxisTitle() + " / Size: " + sizeName,
+                points, configuration.yAxisMaximum(), values.rowLevelNames(),
+                values.columnLevelNames(), MatrixDisplayOptions.DEFAULT, configuration.displayOptions());
+    }
+
+    /** Combines selected measures into stable renderer series without one-off renderer logic. */
+    private static ChartDataset buildMultipleValues(ResultSetSnapshot snapshot,
+            VisualizationConfiguration configuration) {
+        List<ChartPoint> points = new ArrayList<>();
+        ChartDataset first = null;
+        List<String> measureNames = new ArrayList<>();
+        for (int valueIndex : configuration.valueColumnIndexes()) {
+            ChartDataset one = build(snapshot, configuration.withValues(List.of(valueIndex)));
+            if (first == null) first = one;
+            String measure = snapshot.columns().get(valueIndex).displayName();
+            measureNames.add(measure);
+            for (ChartPoint point : one.points()) {
+                String series = point.series().isBlank() ? measure : point.series() + " · " + measure;
+                List<String> levels = new ArrayList<>(point.columnLevels());
+                levels.add(measure);
+                points.add(new ChartPoint(point.label(), point.numericX(), point.y(), series,
+                        point.rowLevels(), levels));
+            }
+        }
+        if (first == null) return new ChartDataset("", "", List.of());
+        return new ChartDataset(first.xAxisTitle(), String.join(" / ", measureNames), points,
+                configuration.yAxisMaximum(), first.rowLevelNames(), first.columnLevelNames(),
+                MatrixDisplayOptions.DEFAULT, configuration.displayOptions());
     }
 
     /** Builds a pivot dataset with one measure level for each selected numeric value. */
@@ -139,7 +193,7 @@ public final class ChartDataBuilder {
         columnNames.add("Values");
         String yTitle = valueNames.stream().reduce((left, right) -> left + " / " + right).orElse("Values");
         return new ChartDataset(first.xAxisTitle(), yTitle, combined, configuration.yAxisMaximum(),
-                first.rowLevelNames(), columnNames, MatrixDisplayOptions.DEFAULT);
+                first.rowLevelNames(), columnNames, MatrixDisplayOptions.DEFAULT, configuration.displayOptions());
     }
 
     public static boolean isNumeric(ResultColumn column) {

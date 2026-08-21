@@ -22,6 +22,29 @@ import org.junit.Test;
 
 public class ChartDataBuilderTest {
 
+    @Test public void combinesMultipleSelectedMeasuresIntoRendererSeries() {
+        ResultSetSnapshot snapshot = salesSnapshot();
+        VisualizationConfiguration configuration = new VisualizationConfiguration(ChartType.BAR,
+                List.of(0), 1, List.of(), Aggregation.SUM, null).withValues(List.of(1, 2));
+
+        ChartDataset dataset = ChartDataBuilder.build(snapshot, configuration);
+
+        assertEquals(5, dataset.points().size());
+        assertTrue(dataset.seriesNames().stream().anyMatch(name -> name.contains("revenue")));
+        assertTrue(dataset.seriesNames().stream().anyMatch(name -> name.contains("quantity")));
+    }
+
+    @Test public void usesSecondBubbleMeasureForPointSize() {
+        VisualizationConfiguration configuration = new VisualizationConfiguration(ChartType.BUBBLE,
+                List.of(0), 1, List.of(), Aggregation.SUM, null).withValues(List.of(1, 2));
+
+        ChartDataset dataset = ChartDataBuilder.build(salesSnapshot(), configuration);
+
+        assertEquals(2, dataset.points().size());
+        assertEquals(10.0, dataset.points().get(0).size(), 0.0001);
+        assertTrue(dataset.yAxisTitle().contains("Size: quantity"));
+    }
+
     @Test
     public void registersEverySupportedChartAndMatrixType() {
         ChartRendererRegistry registry = ChartRendererRegistry.defaults();

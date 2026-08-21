@@ -121,7 +121,21 @@ final class ChartDrawing {
         } else {
             drawCategoryLabels(graphics, plot, dataset.categories());
         }
-        drawLegend(graphics, plot, dataset.seriesNames());
+        drawLegend(graphics, plot, dataset.seriesNames(), dataset.displayOptions().legendPosition());
+    }
+
+    static void drawSecondaryYAxis(ChartGraphics graphics, Rectangle plot, Range range, String title) {
+        graphics.setForeground(graphics.theme().foreground());
+        graphics.drawLine(plot.x + plot.width, plot.y, plot.x + plot.width, plot.y + plot.height);
+        for (int tick = 0; tick <= TICK_COUNT; tick++) {
+            int y = plot.y + plot.height - (plot.height * tick / TICK_COUNT);
+            String label = NUMBER_FORMAT.format(range.minimum() + range.span() * tick / TICK_COUNT);
+            graphics.drawText(label, plot.x + plot.width + 7, y - graphics.textExtent(label).height() / 2);
+        }
+        if (title != null && !title.isBlank()) {
+            TextSize size = graphics.textExtent(title);
+            graphics.drawText(title, plot.x + plot.width - size.width(), Math.max(0, plot.y - 24));
+        }
     }
 
     private static void drawNumericXLabels(ChartGraphics graphics, Rectangle plot, Range range) {
@@ -195,20 +209,28 @@ final class ChartDrawing {
         graphics.drawText(label, labelX, labelY);
     }
 
-    private static void drawLegend(ChartGraphics graphics, Rectangle plot, List<String> seriesNames) {
+    private static void drawLegend(ChartGraphics graphics, Rectangle plot, List<String> seriesNames,
+            ChartDisplayOptions.LegendPosition position) {
+        if (position == ChartDisplayOptions.LegendPosition.NONE) return;
         if (seriesNames.size() <= 1 || seriesNames.stream().allMatch(String::isBlank)) return;
-        int x = plot.x + plot.width;
-        int y = Math.max(2, plot.y - 24);
+        int x = position == ChartDisplayOptions.LegendPosition.RIGHT
+                ? plot.x + plot.width - 110 : plot.x + plot.width;
+        int y = position == ChartDisplayOptions.LegendPosition.RIGHT ? plot.y + 4 : Math.max(2, plot.y - 24);
         for (int index = seriesNames.size() - 1; index >= 0; index--) {
             String name = elide(graphics, seriesNames.get(index), 100);
             int width = graphics.textExtent(name).width() + 19;
-            x -= width;
+            if (position == ChartDisplayOptions.LegendPosition.RIGHT) {
+                x = plot.x + plot.width - 110;
+                y += index == seriesNames.size() - 1 ? 0 : 18;
+            } else x -= width;
             graphics.setBackground(seriesColor(graphics, index));
             graphics.fillRectangle(x, y + 4, 10, 10);
             graphics.setForeground(graphics.theme().foreground());
             graphics.drawText(name, x + 14, y);
-            x -= 10;
-            if (x < plot.x) break;
+            if (position != ChartDisplayOptions.LegendPosition.RIGHT) {
+                x -= 10;
+                if (x < plot.x) break;
+            }
         }
     }
 

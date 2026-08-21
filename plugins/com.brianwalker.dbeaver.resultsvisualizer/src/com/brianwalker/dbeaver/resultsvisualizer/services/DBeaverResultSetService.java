@@ -17,7 +17,9 @@ import java.util.List;
 import java.util.function.Consumer;
 import org.eclipse.jface.viewers.SelectionChangedEvent;
 import org.eclipse.jface.dialogs.IDialogConstants;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Listener;
 import org.eclipse.core.runtime.IStatus;
@@ -55,18 +57,20 @@ final class DBeaverResultSetService
 
     private final IWorkbenchPage page;
     private final Display display;
-    private final Listener workbenchControlListener = event -> {
-        rememberFocusedGroupingController();
-        schedule(false);
-    };
+    private final Listener workbenchControlListener = event ->
+            scheduleUserControllerSelection(event.widget instanceof Control control ? control : null);
 
     private Consumer<ResultSetUpdate> updateConsumer = update -> { };
     private IResultSetController attachedController;
     private IResultSetController groupingController;
     private ResultSource source = ResultSource.RESULTS;
     private boolean scheduled;
-    private boolean forceRequested;
+    private boolean resolveRequested;
+    private boolean extractionRequested;
+    private boolean publishUnchangedRequested;
+    private boolean userSelectionScheduled;
     private boolean closed;
+    private ResultSetSnapshot lastPublishedSnapshot;
 
     DBeaverResultSetService(IWorkbenchPage page, Display display) {
         this.page = page;
@@ -80,19 +84,19 @@ final class DBeaverResultSetService
         page.addPartListener(this);
         display.addFilter(SWT.FocusIn, workbenchControlListener);
         display.addFilter(SWT.Selection, workbenchControlListener);
-        schedule(true);
+        scheduleResolve(true, true);
     }
 
     @Override
     public void refresh() {
-        schedule(true);
+        scheduleResolve(true, true);
     }
 
     @Override
     public void setSource(ResultSource source) {
         this.source = java.util.Objects.requireNonNull(source, "source");
         rememberFocusedGroupingController();
-        schedule(true);
+        scheduleResolve(true, true);
     }
 
     @Override
@@ -134,9 +138,12 @@ final class DBeaverResultSetService
     }
 
     @Override
-    public void executeQuery(String title, String sql) {
+    public void executeQuery(String title, AggregateExecutionRequest request) {
         IResultSetController controller = attachedController;
         if (!isUsable(controller)) throw new IllegalStateException("No active result is available.");
+        if (!activeResultIdentity().equals(request.sessionIdentity())) {
+            throw new IllegalStateException("The launching result is no longer active.");
+        }
         DBCExecutionContext context = controller.getExecutionContext();
         int configuredLimit = controller.getPreferenceStore().getInt(ModelPreferences.RESULT_SET_MAX_ROWS);
         new AbstractJob("Execute Results Visualizer aggregate") {
@@ -144,13 +151,18 @@ final class DBeaverResultSetService
             @Override
             protected IStatus run(@NotNull DBRProgressMonitor monitor) {
                 try {
-                    ResultSetSnapshot result = executeSnapshot(context, title, sql, configuredLimit, monitor);
-                    publish(ResultSetUpdate.ready(result));
+                    ResultSetSnapshot result = executeSnapshot(
+                            context, title, request.query().sql(), configuredLimit, monitor);
+                    publish(ResultSetUpdate.aggregateReady(request, result));
                     return Status.OK_STATUS;
+                } catch (OperationCanceledException cancelled) {
+                    publish(ResultSetUpdate.aggregateCancelled(request));
+                    return Status.CANCEL_STATUS;
                 } catch (Exception error) {
                     ResultsVisualizerPlugin.logError("Unable to execute the generated aggregate query.", error);
-                    publish(ResultSetUpdate.error("Aggregate query failed: "
-                            + java.util.Objects.requireNonNullElse(error.getMessage(), error.getClass().getSimpleName())));
+                    publish(ResultSetUpdate.aggregateError(request, "Aggregate query failed: "
+                            + java.util.Objects.requireNonNullElse(
+                                    error.getMessage(), error.getClass().getSimpleName())));
                     return Status.OK_STATUS;
                 }
             }
@@ -203,6 +215,7 @@ final class DBeaverResultSetService
                     }
                     rows.add(new ResultRow(rows.size(), values));
                 }
+                if (monitor.isCanceled()) throw new OperationCanceledException();
                 return new ResultSetSnapshot(title, columns, rows, rows.size(), truncated, Instant.now(),
                         configuredLimit);
             }
@@ -229,24 +242,42 @@ final class DBeaverResultSetService
         updateConsumer = update -> { };
     }
 
-    private void schedule(boolean force) {
+    private void scheduleResolve(boolean extract, boolean publishUnchanged) {
         if (closed || display.isDisposed()) return;
-        forceRequested |= force;
+        resolveRequested = true;
+        extractionRequested |= extract;
+        publishUnchangedRequested |= publishUnchanged;
+        schedulePendingWork();
+    }
+
+    private void scheduleAttachedChange() {
+        if (closed || display.isDisposed()) return;
+        extractionRequested = true;
+        schedulePendingWork();
+    }
+
+    private void schedulePendingWork() {
         if (scheduled) return;
         scheduled = true;
         display.asyncExec(() -> {
             scheduled = false;
-            boolean refreshSnapshot = forceRequested;
-            forceRequested = false;
-            resolveAndPublish(refreshSnapshot);
+            boolean resolve = resolveRequested;
+            boolean extract = extractionRequested;
+            boolean publishUnchanged = publishUnchangedRequested;
+            resolveRequested = false;
+            extractionRequested = false;
+            publishUnchangedRequested = false;
+            resolveAndPublish(resolve, extract, publishUnchanged);
         });
     }
 
-    private void resolveAndPublish(boolean force) {
+    private void resolveAndPublish(boolean resolve, boolean extractRequested,
+            boolean publishUnchanged) {
         if (closed || display.isDisposed()) return;
         try {
-            IResultSetController activeController = findActiveController();
+            IResultSetController activeController = resolve ? findActiveController() : attachedController;
             if (!isUsable(activeController)) {
+                if (!resolve) return;
                 detachController();
                 updateConsumer.accept(source == ResultSource.GROUPING
                         ? ResultSetUpdate.error("No grouping results are available. Open the Grouping panel, run or focus its results, then choose Refresh.")
@@ -258,16 +289,73 @@ final class DBeaverResultSetService
                 detachController();
                 attachedController = activeController;
                 attachedController.addListener(this);
+                lastPublishedSnapshot = null;
             }
-            if (controllerChanged || force) {
-                updateConsumer.accept(ResultSetUpdate.loading());
-                updateConsumer.accept(ResultSetUpdate.ready(extract(activeController)));
+            if (controllerChanged || extractRequested) {
+                ResultSetSnapshot extracted = extract(activeController);
+                if (controllerChanged || publishUnchanged
+                        || lastPublishedSnapshot == null
+                        || !lastPublishedSnapshot.sameData(extracted)) {
+                    lastPublishedSnapshot = extracted;
+                    updateConsumer.accept(ResultSetUpdate.loading());
+                    updateConsumer.accept(ResultSetUpdate.ready(extracted));
+                }
             }
         } catch (RuntimeException error) {
             ResultsVisualizerPlugin.logError("Unable to read the active DBeaver result set.", error);
             updateConsumer.accept(ResultSetUpdate.error(
                     "Unable to read the active result set. See the DBeaver Error Log for details."));
         }
+    }
+
+    /**
+     * A global SWT event is only evidence of a result switch when its widget is inside
+     * the controller DBeaver reports as selected. Visualizer controls therefore never
+     * trigger controller rediscovery.
+     */
+    private void scheduleUserControllerSelection(Control eventControl) {
+        if (closed || display.isDisposed() || eventControl == null || userSelectionScheduled) return;
+        userSelectionScheduled = true;
+        display.asyncExec(() -> {
+            userSelectionScheduled = false;
+            if (closed || eventControl.isDisposed()) return;
+            IResultSetController candidate = findFocusedController();
+            if (!isUsable(candidate) || !isDescendant(eventControl, candidate.getControl())) return;
+            if (source == ResultSource.GROUPING) {
+                if (!isGroupingController(candidate)) return;
+                groupingController = candidate;
+            } else if (isGroupingController(candidate)) {
+                return;
+            }
+            if (candidate != attachedController) {
+                bindSelectedController(candidate);
+            }
+        });
+    }
+
+    private void bindSelectedController(IResultSetController controller) {
+        try {
+            detachController();
+            attachedController = controller;
+            attachedController.addListener(this);
+            lastPublishedSnapshot = null;
+            updateConsumer.accept(ResultSetUpdate.loading());
+            ResultSetSnapshot extracted = extract(controller);
+            lastPublishedSnapshot = extracted;
+            updateConsumer.accept(ResultSetUpdate.ready(extracted));
+        } catch (RuntimeException error) {
+            ResultsVisualizerPlugin.logError("Unable to bind the selected DBeaver result set.", error);
+            updateConsumer.accept(ResultSetUpdate.error(
+                    "Unable to read the selected result set. See the DBeaver Error Log for details."));
+        }
+    }
+
+    static boolean isDescendant(Control child, Control ancestor) {
+        if (child == null || ancestor == null) return false;
+        for (Control current = child; current != null; current = current.getParent()) {
+            if (current == ancestor) return true;
+        }
+        return false;
     }
 
     private IResultSetController findActiveController() {
@@ -364,15 +452,20 @@ final class DBeaverResultSetService
             ResultsVisualizerPlugin.logError("Unable to detach the result-set listener.", error);
         } finally {
             attachedController = null;
+            lastPublishedSnapshot = null;
         }
     }
 
-    @Override public void handleResultSetLoad() { schedule(true); }
-    @Override public void handleResultSetChange() { schedule(true); }
+    @Override public void handleResultSetLoad() { scheduleAttachedChange(); }
+    @Override public void handleResultSetChange() { scheduleAttachedChange(); }
     @Override public void handleResultSetSelectionChange(SelectionChangedEvent event) { }
-    @Override public void onModelPrepared() { schedule(true); }
-    @Override public void partActivated(IWorkbenchPartReference partRef) { schedule(false); }
-    @Override public void partBroughtToTop(IWorkbenchPartReference partRef) { schedule(false); }
+    @Override public void onModelPrepared() { scheduleAttachedChange(); }
+    @Override public void partActivated(IWorkbenchPartReference partRef) {
+        scheduleUserControllerSelection(display.getFocusControl());
+    }
+    @Override public void partBroughtToTop(IWorkbenchPartReference partRef) {
+        scheduleUserControllerSelection(display.getFocusControl());
+    }
     @Override public void partClosed(IWorkbenchPartReference partRef) {
         IWorkbenchPart part = partRef == null ? null : partRef.getPart(false);
         if (part == null) return;
@@ -382,11 +475,16 @@ final class DBeaverResultSetService
             if (source == ResultSource.GROUPING) groupingController = null;
             updateConsumer.accept(ResultSetUpdate.noActiveResult());
         }
-        schedule(false);
+        scheduleResolve(false, false);
     }
     @Override public void partDeactivated(IWorkbenchPartReference partRef) { }
     @Override public void partHidden(IWorkbenchPartReference partRef) { }
-    @Override public void partInputChanged(IWorkbenchPartReference partRef) { schedule(true); }
-    @Override public void partOpened(IWorkbenchPartReference partRef) { schedule(false); }
-    @Override public void partVisible(IWorkbenchPartReference partRef) { schedule(false); }
+    @Override public void partInputChanged(IWorkbenchPartReference partRef) {
+        IWorkbenchPart part = partRef == null ? null : partRef.getPart(false);
+        if (part != null && ResultSetHandlerMain.getActiveResultSet(part) == attachedController) {
+            scheduleAttachedChange();
+        }
+    }
+    @Override public void partOpened(IWorkbenchPartReference partRef) { }
+    @Override public void partVisible(IWorkbenchPartReference partRef) { }
 }

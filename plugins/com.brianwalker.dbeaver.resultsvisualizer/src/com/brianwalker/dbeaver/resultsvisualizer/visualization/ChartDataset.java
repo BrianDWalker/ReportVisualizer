@@ -11,7 +11,7 @@ import java.util.Objects;
 public record ChartDataset(
         String xAxisTitle, String yAxisTitle, List<ChartPoint> points, Double yAxisMaximum,
         List<String> rowLevelNames, List<String> columnLevelNames,
-        MatrixDisplayOptions matrixOptions) {
+        MatrixDisplayOptions matrixOptions, ChartDisplayOptions displayOptions) {
     public ChartDataset {
         xAxisTitle = Objects.requireNonNullElse(xAxisTitle, "");
         yAxisTitle = Objects.requireNonNullElse(yAxisTitle, "");
@@ -19,24 +19,37 @@ public record ChartDataset(
         rowLevelNames = List.copyOf(rowLevelNames == null ? List.of(xAxisTitle) : rowLevelNames);
         columnLevelNames = List.copyOf(columnLevelNames == null ? List.of() : columnLevelNames);
         matrixOptions = matrixOptions == null ? MatrixDisplayOptions.DEFAULT : matrixOptions;
+        displayOptions = displayOptions == null ? ChartDisplayOptions.DEFAULT : displayOptions;
         if (yAxisMaximum != null && !Double.isFinite(yAxisMaximum)) {
             throw new IllegalArgumentException("Y-axis maximum must be finite.");
         }
     }
 
     public ChartDataset(String xAxisTitle, String yAxisTitle, List<ChartPoint> points) {
-        this(xAxisTitle, yAxisTitle, points, null, List.of(xAxisTitle), List.of(), MatrixDisplayOptions.DEFAULT);
+        this(xAxisTitle, yAxisTitle, points, null, List.of(xAxisTitle), List.of(), MatrixDisplayOptions.DEFAULT, ChartDisplayOptions.DEFAULT);
     }
 
     public ChartDataset(String xAxisTitle, String yAxisTitle, List<ChartPoint> points,
             Double yAxisMaximum) {
         this(xAxisTitle, yAxisTitle, points, yAxisMaximum,
-                List.of(xAxisTitle), List.of(), MatrixDisplayOptions.DEFAULT);
+                List.of(xAxisTitle), List.of(), MatrixDisplayOptions.DEFAULT, ChartDisplayOptions.DEFAULT);
+    }
+
+    public ChartDataset(String xAxisTitle, String yAxisTitle, List<ChartPoint> points,
+            Double yAxisMaximum, List<String> rowLevelNames, List<String> columnLevelNames,
+            MatrixDisplayOptions matrixOptions) {
+        this(xAxisTitle, yAxisTitle, points, yAxisMaximum, rowLevelNames, columnLevelNames,
+                matrixOptions, ChartDisplayOptions.DEFAULT);
     }
 
     public ChartDataset withMatrixOptions(MatrixDisplayOptions value) {
         return new ChartDataset(xAxisTitle, yAxisTitle, points, yAxisMaximum,
-                rowLevelNames, columnLevelNames, value);
+                rowLevelNames, columnLevelNames, value, displayOptions);
+    }
+
+    public ChartDataset withDisplayOptions(ChartDisplayOptions value) {
+        return new ChartDataset(xAxisTitle, yAxisTitle, points, yAxisMaximum,
+                rowLevelNames, columnLevelNames, matrixOptions, value);
     }
 
     public boolean hasNumericX() {

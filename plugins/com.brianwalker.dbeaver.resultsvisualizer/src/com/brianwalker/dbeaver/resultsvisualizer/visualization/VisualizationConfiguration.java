@@ -12,24 +12,38 @@ public record VisualizationConfiguration(
         ChartType chartType,
         List<Integer> xColumnIndexes,
         int valueColumnIndex,
+        List<Integer> valueColumnIndexes,
         List<Integer> seriesColumnIndexes,
         Aggregation aggregation,
-        Double yAxisMaximum) {
+        Double yAxisMaximum,
+        ChartDisplayOptions displayOptions) {
 
     public static final int UNASSIGNED = -1;
 
     public VisualizationConfiguration {
         chartType = Objects.requireNonNull(chartType, "chartType");
         xColumnIndexes = List.copyOf(Objects.requireNonNull(xColumnIndexes, "xColumnIndexes"));
+        valueColumnIndexes = List.copyOf(Objects.requireNonNullElse(valueColumnIndexes,
+                valueColumnIndex < 0 ? List.of() : List.of(valueColumnIndex)));
         seriesColumnIndexes = List.copyOf(Objects.requireNonNull(seriesColumnIndexes, "seriesColumnIndexes"));
         aggregation = Objects.requireNonNull(aggregation, "aggregation");
         if (valueColumnIndex < UNASSIGNED || xColumnIndexes.stream().anyMatch(i -> i < 0)
+                || valueColumnIndexes.stream().anyMatch(i -> i < 0)
                 || seriesColumnIndexes.stream().anyMatch(i -> i < 0)) {
             throw new IllegalArgumentException("Field indexes must be -1 or greater.");
         }
         if (yAxisMaximum != null && !Double.isFinite(yAxisMaximum)) {
             throw new IllegalArgumentException("Y-axis maximum must be finite.");
         }
+        displayOptions = displayOptions == null ? ChartDisplayOptions.DEFAULT : displayOptions;
+    }
+
+    public VisualizationConfiguration(ChartType chartType, List<Integer> xColumnIndexes,
+            int valueColumnIndex, List<Integer> seriesColumnIndexes, Aggregation aggregation,
+            Double yAxisMaximum) {
+        this(chartType, xColumnIndexes, valueColumnIndex,
+                valueColumnIndex < 0 ? List.of() : List.of(valueColumnIndex), seriesColumnIndexes,
+                aggregation, yAxisMaximum, ChartDisplayOptions.DEFAULT);
     }
 
     public VisualizationConfiguration(ChartType chartType, int xColumnIndex,
@@ -48,7 +62,7 @@ public record VisualizationConfiguration(
     }
 
     public boolean isComplete() {
-        return !xColumnIndexes.isEmpty() && valueColumnIndex >= 0;
+        return !xColumnIndexes.isEmpty() && !valueColumnIndexes.isEmpty();
     }
 
     public int xColumnIndex() {
@@ -60,8 +74,8 @@ public record VisualizationConfiguration(
     }
 
     public VisualizationConfiguration withChartType(ChartType value) {
-        return new VisualizationConfiguration(value, xColumnIndexes, valueColumnIndex,
-                seriesColumnIndexes, aggregation, yAxisMaximum);
+        return copy(value, xColumnIndexes, valueColumnIndex, valueColumnIndexes,
+                seriesColumnIndexes, aggregation, yAxisMaximum, displayOptions);
     }
 
     public VisualizationConfiguration withX(int index) {
@@ -69,13 +83,19 @@ public record VisualizationConfiguration(
     }
 
     public VisualizationConfiguration withXColumns(List<Integer> indexes) {
-        return new VisualizationConfiguration(chartType, indexes, valueColumnIndex,
-                seriesColumnIndexes, aggregation, yAxisMaximum);
+        return copy(chartType, indexes, valueColumnIndex, valueColumnIndexes,
+                seriesColumnIndexes, aggregation, yAxisMaximum, displayOptions);
     }
 
     public VisualizationConfiguration withValue(int index) {
-        return new VisualizationConfiguration(chartType, xColumnIndexes, index,
-                seriesColumnIndexes, aggregation, yAxisMaximum);
+        return copy(chartType, xColumnIndexes, index, index < 0 ? List.of() : List.of(index),
+                seriesColumnIndexes, aggregation, yAxisMaximum, displayOptions);
+    }
+
+    public VisualizationConfiguration withValues(List<Integer> indexes) {
+        int primary = indexes == null || indexes.isEmpty() ? UNASSIGNED : indexes.get(0);
+        return copy(chartType, xColumnIndexes, primary, indexes, seriesColumnIndexes,
+                aggregation, yAxisMaximum, displayOptions);
     }
 
     public VisualizationConfiguration withSeries(int index) {
@@ -83,18 +103,30 @@ public record VisualizationConfiguration(
     }
 
     public VisualizationConfiguration withSeriesColumns(List<Integer> indexes) {
-        return new VisualizationConfiguration(chartType, xColumnIndexes, valueColumnIndex,
-                indexes, aggregation, yAxisMaximum);
+        return copy(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes,
+                indexes, aggregation, yAxisMaximum, displayOptions);
     }
 
     public VisualizationConfiguration withAggregation(Aggregation value) {
-        return new VisualizationConfiguration(chartType, xColumnIndexes, valueColumnIndex,
-                seriesColumnIndexes, value, yAxisMaximum);
+        return copy(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes,
+                seriesColumnIndexes, value, yAxisMaximum, displayOptions);
     }
 
     public VisualizationConfiguration withYAxisMaximum(Double value) {
-        return new VisualizationConfiguration(chartType, xColumnIndexes, valueColumnIndex,
-                seriesColumnIndexes, aggregation, value);
+        return copy(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes,
+                seriesColumnIndexes, aggregation, value, displayOptions);
+    }
+
+    public VisualizationConfiguration withDisplayOptions(ChartDisplayOptions value) {
+        return copy(chartType, xColumnIndexes, valueColumnIndex, valueColumnIndexes,
+                seriesColumnIndexes, aggregation, yAxisMaximum, value);
+    }
+
+    private static VisualizationConfiguration copy(ChartType chartType, List<Integer> xIndexes,
+            int valueIndex, List<Integer> valueIndexes, List<Integer> seriesIndexes,
+            Aggregation aggregation, Double maximum, ChartDisplayOptions options) {
+        return new VisualizationConfiguration(chartType, xIndexes, valueIndex, valueIndexes,
+                seriesIndexes, aggregation, maximum, options);
     }
 
     private static List<Integer> indexes(int index) {
