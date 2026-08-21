@@ -6,7 +6,7 @@
 
     <groupId>com.brianwalker.dbeaver</groupId>
     <artifactId>results-visualizer-parent</artifactId>
-    <version>1.2.3-SNAPSHOT</version>
+    <version>1.2.4-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>DBeaver Results Visualizer</name>
