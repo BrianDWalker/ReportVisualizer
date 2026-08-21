@@ -11,6 +11,7 @@ import java.util.Map;
 import org.eclipse.jface.dialogs.IDialogConstants;
 import org.eclipse.jface.dialogs.TitleAreaDialog;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
@@ -37,8 +38,10 @@ final class ValuesDialog extends TitleAreaDialog {
     @Override public void create() { super.create(); setTitle("Chart Values"); setMessage("Select one or more measures and choose the aggregation for each one."); }
     @Override protected Control createDialogArea(Composite parent) {
         Composite area = (Composite) super.createDialogArea(parent);
-        Composite rows = new Composite(area, SWT.NONE);
-        GridData data = new GridData(SWT.FILL, SWT.FILL, true, true); data.widthHint = 420; data.heightHint = 240; rows.setLayoutData(data);
+        ScrolledComposite scroller = new ScrolledComposite(area, SWT.BORDER | SWT.V_SCROLL);
+        GridData data = new GridData(SWT.FILL, SWT.FILL, true, true); data.widthHint = 360; data.heightHint = 180; scroller.setLayoutData(data);
+        scroller.setExpandHorizontal(true);
+        Composite rows = new Composite(scroller, SWT.NONE);
         GridLayout layout = new GridLayout(2, false); layout.marginWidth = 0; layout.marginHeight = 0; layout.verticalSpacing = 4; rows.setLayout(layout);
         for (int index = 0; index < snapshot.columns().size(); index++) {
             Button check = new Button(rows, SWT.CHECK); check.setText(snapshot.columns().get(index).displayName()); check.setData(index);
@@ -50,6 +53,8 @@ final class ValuesDialog extends TitleAreaDialog {
             aggregation.setEnabled(check.getSelection()); check.addListener(SWT.Selection, event -> aggregation.setEnabled(check.getSelection()));
             checks.add(check); aggregationCombos.add(aggregation);
         }
+        scroller.setContent(rows);
+        scroller.setMinSize(rows.computeSize(SWT.DEFAULT, SWT.DEFAULT));
         return area;
     }
     @Override protected void createButtonsForButtonBar(Composite parent) { createButton(parent, IDialogConstants.OK_ID, "Apply", true); createButton(parent, IDialogConstants.CANCEL_ID, IDialogConstants.CANCEL_LABEL, false); }

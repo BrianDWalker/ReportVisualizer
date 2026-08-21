@@ -2,7 +2,7 @@
 <feature
       id="com.brianwalker.dbeaver.resultsvisualizer.feature"
       label="Results Visualizer for DBeaver"
-      version="1.2.4.qualifier"
+      version="1.2.5.qualifier"
       provider-name="Brian Walker">
 
    <description>
