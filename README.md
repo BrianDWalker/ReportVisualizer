@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Current release line:** `1.2.3`
+**Current release line:** `1.2.4`
 
 ## Install
 
@@ -39,8 +39,9 @@ Release downloads and checksums are available on the
   Stacked Area, 100% Stacked Area, Column + Line, Scatter, Bubble, Pie, Donut,
   Heatmap, and Matrix/Pivot visualizations
 - Automatically chooses a categorical X field and numeric Y field when possible
-- Compact dropdown selectors assign X-Axis, Values, and optional Series
-  fields. Values accepts any column type: numeric columns support the full
+- Compact selectors assign X-Axis and optional Series fields; one **Values…**
+  button selects chart measures and an aggregation for each. Values accepts any
+  column type: numeric columns support the full
   SUM/AVG/MIN/MAX/COUNT/COUNT DISTINCT aggregation set, while string,
   boolean, and date/time columns support COUNT and COUNT DISTINCT
 - Matrix/Pivot switches those roles to Rows, Values, and Columns, supports
@@ -129,10 +130,8 @@ Release downloads and checksums are available on the
   ordered sorts, and referenced formulas). Load and Delete present a selectable
   list of compatible saved presets; exact-name, versioned storage prevents
   sanitized-name collisions and ignores corrupt entries safely
-- When multiple values are selected, **Aggs…** sets SUM, COUNT DISTINCT, or
-  another compatible aggregation independently for each measure
-- Hover any non-matrix chart to see the category/series values; stacked charts
-  expose each stack component and scatter/bubble charts expose the nearest point
+- Hover any non-matrix chart to see only the bar, stack segment, marker/line,
+  bubble, or pie/donut slice under the pointer
 - Visualization export: **Save PNG**, **Save JPEG**, **Save SVG**, **Save PDF**,
   and **Copy Image** (to the system clipboard) for the currently rendered
   chart or matrix, sharing the same on-screen rendering pipeline. Copy Image

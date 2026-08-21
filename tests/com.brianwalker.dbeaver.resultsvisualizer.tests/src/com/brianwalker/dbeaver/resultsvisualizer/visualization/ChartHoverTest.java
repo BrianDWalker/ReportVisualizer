@@ -2,6 +2,7 @@
 package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
@@ -11,17 +12,18 @@ import org.junit.Test;
 public class ChartHoverTest {
     private static final Rectangle BOUNDS = new Rectangle(0, 0, 500, 320);
 
-    @Test public void listsEveryStackedSeriesValueForTheHoveredCategory() {
+    @Test public void describesOnlyTheStackedSegmentUnderThePointer() {
         ChartDataset data = new ChartDataset("Month", "Values", List.of(
                 new ChartPoint("Jan", null, 10, "Total"),
                 new ChartPoint("Jan", null, 2, "Invoices"),
                 new ChartPoint("Feb", null, 8, "Total")));
 
-        String tooltip = ChartHover.textAt(ChartType.STACKED_BAR, data, BOUNDS, 180, 120);
+        String tooltip = ChartHover.textAt(ChartType.STACKED_BAR, data, BOUNDS, 169, 130);
 
         assertTrue(tooltip.contains("Jan"));
-        assertTrue(tooltip.contains("Total: 10"));
-        assertTrue(tooltip.contains("Invoices: 2"));
+        assertTrue(tooltip.contains("Invoices"));
+        assertTrue(tooltip.contains("Value: 2"));
+        assertFalse(tooltip.contains("Total"));
     }
 
     @Test public void describesNearbyScatterPointsAndExcludesMatrix() {

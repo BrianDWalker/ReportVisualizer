@@ -2,6 +2,15 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.4 — 2026-08-20
+
+- Consolidated the Values field control, Values chooser, global aggregation
+  selector, and **Aggs…** button into one **Values…** dialog. It now selects
+  measures and an independent compatible aggregation for each selected measure.
+- Refined non-matrix hover tooltips to hit-test the individual rendered bar,
+  stacked segment, line/marker, bubble, or slice rather than listing every
+  measure in the hovered category.
+
 ## 1.2.3 — 2026-08-20
 
 - Added **Aggs…** for per-value local aggregation when multiple chart measures

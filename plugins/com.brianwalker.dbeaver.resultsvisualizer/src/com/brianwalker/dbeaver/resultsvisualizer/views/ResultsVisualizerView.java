@@ -80,7 +80,7 @@ public final class ResultsVisualizerView extends ViewPart {
     public static final String ID =
             "com.brianwalker.dbeaver.resultsvisualizer.views.resultsVisualizer";
 
-    private enum FieldRole { X, VALUE, SERIES }
+    private enum FieldRole { X, SERIES }
 
     private final ChartRendererRegistry rendererRegistry = ChartRendererRegistry.defaults();
     private final List<ChartType> chartTypes = rendererRegistry.availableTypes();
@@ -105,20 +105,18 @@ public final class ResultsVisualizerView extends ViewPart {
     private Label calculatedFieldStatus;
     private Button slicersButton;
     private Button valuesButton;
-    private Button valueAggregationsButton;
     private Button hierarchyButton;
     private Button sourceQueryButton;
     private Button sortButton;
     private Button backToOriginalButton;
     private ChartCanvas chartCanvas;
     private Combo chartTypeCombo;
-    private Combo aggregationCombo;
     private Combo xWell;
-    private Combo valueWell;
     private Combo seriesWell;
     private Combo yMaximumCombo;
     private Label xWellLabel;
     private Label seriesWellLabel;
+    private Composite valuesWellCard;
     private Composite matrixConfiguration;
     private OrderedFieldWell matrixRowsWell;
     private OrderedFieldWell matrixColumnsWell;
@@ -128,8 +126,6 @@ public final class ResultsVisualizerView extends ViewPart {
     private Button subtotalsButton;
     private List<DimensionChoice> xWellChoices = List.of();
     private List<DimensionChoice> seriesWellChoices = List.of();
-    private List<Integer> valueWellIndexes = List.of();
-    private List<Aggregation> availableAggregations = List.of(Aggregation.values());
     private List<DimensionChoice> matrixRows = new ArrayList<>();
     private List<DimensionChoice> matrixColumns = new ArrayList<>();
     private List<DimensionChoice> matrixValues = new ArrayList<>();
@@ -266,7 +262,7 @@ public final class ResultsVisualizerView extends ViewPart {
         wellsLayout.horizontalSpacing = 6;
         wells.setLayout(wellsLayout);
         xWell = createWell(wells, "X-Axis", FieldRole.X);
-        valueWell = createValuesWell(wells);
+        createValuesWell(wells);
         seriesWell = createWell(wells, "Series", FieldRole.SERIES);
 
         matrixConfiguration = new Composite(configurationGroup, SWT.NONE);
@@ -358,7 +354,7 @@ public final class ResultsVisualizerView extends ViewPart {
 
         Composite controls = new Composite(configurationGroup, SWT.NONE);
         controls.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout controlsLayout = new GridLayout(5, false);
+        GridLayout controlsLayout = new GridLayout(4, false);
         controlsLayout.marginWidth = 0;
         controlsLayout.marginHeight = 0;
         controlsLayout.horizontalSpacing = 6;
@@ -375,18 +371,6 @@ public final class ResultsVisualizerView extends ViewPart {
             initializeDimensionSelections(snapshot);
             updateRoleLabels();
             selectNumericXForScatter();
-            updateChart();
-        });
-
-        Composite aggregationOptions = createOptionCard(controls, "Agg");
-        aggregationCombo = new Combo(aggregationOptions, SWT.DROP_DOWN | SWT.READ_ONLY);
-        aggregationCombo.setLayoutData(compactComboData(80));
-        setAccessibleName(aggregationCombo, "Aggregation");
-        aggregationCombo.addListener(SWT.Selection, event -> {
-            if (configuration == null || aggregationCombo.getSelectionIndex() < 0) return;
-            if (aggregationCombo.getSelectionIndex() >= availableAggregations.size()) return;
-            configuration = configuration.withAggregation(
-                    availableAggregations.get(aggregationCombo.getSelectionIndex()));
             updateChart();
         });
 
@@ -523,30 +507,20 @@ public final class ResultsVisualizerView extends ViewPart {
         return well;
     }
 
-    private Combo createValuesWell(Composite parent) {
-        Composite card = new Composite(parent, SWT.NONE);
+    private void createValuesWell(Composite parent) {
+        valuesWellCard = new Composite(parent, SWT.NONE);
+        Composite card = valuesWellCard;
         card.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
-        GridLayout layout = new GridLayout(4, false);
+        GridLayout layout = new GridLayout(2, false);
         layout.marginWidth = 0;
         layout.marginHeight = 0;
         layout.horizontalSpacing = 3;
         card.setLayout(layout);
         new Label(card, SWT.NONE).setText("Values:");
-        Combo well = new Combo(card, SWT.DROP_DOWN | SWT.READ_ONLY);
-        setAccessibleName(well, "Values field well");
-        well.setLayoutData(compactComboData(100));
-        well.setToolTipText("Select the primary value field");
-        well.addListener(SWT.Selection, event -> assignRole(FieldRole.VALUE,
-                well.getSelectionIndex() - 1));
         valuesButton = new Button(card, SWT.PUSH);
         valuesButton.setText("Values…");
-        valuesButton.setToolTipText("Choose one or more chart measures");
+        valuesButton.setToolTipText("Choose chart measures and their individual aggregations");
         valuesButton.addListener(SWT.Selection, event -> openValuesDialog());
-        valueAggregationsButton = new Button(card, SWT.PUSH);
-        valueAggregationsButton.setText("Aggs…");
-        valueAggregationsButton.setToolTipText("Choose an aggregation for each selected value");
-        valueAggregationsButton.addListener(SWT.Selection, event -> openValueAggregationsDialog());
-        return well;
     }
 
     private void updateRoleLabels() {
@@ -554,7 +528,7 @@ public final class ResultsVisualizerView extends ViewPart {
         xWellLabel.setText("X-Axis:");
         seriesWellLabel.setText("Series:");
         setVisible(xWell.getParent(), !matrix);
-        setVisible(valueWell.getParent(), !matrix);
+        setVisible(valuesWellCard, !matrix);
         setVisible(seriesWell.getParent(), !matrix);
         setVisible(matrixConfiguration, matrix);
         if (matrix && snapshot != null) updateMatrixWells();
@@ -767,12 +741,6 @@ public final class ResultsVisualizerView extends ViewPart {
         if (shouldShow) {
             summaryLabel.setText((summaryLabel.getText().contains("Aggregate") ? summaryLabel.getText() : "Viewing: Aggregate Result")
                     + "   [Back to Original]");
-        }
-        if (aggregationCombo != null && !aggregationCombo.isDisposed()) {
-            aggregationCombo.setEnabled(!shouldShow);
-            aggregationCombo.setToolTipText(shouldShow
-                    ? "Source Query fixes aggregate semantics. Change them by executing a new Source Query."
-                    : null);
         }
     }
 
@@ -1011,17 +979,10 @@ public final class ResultsVisualizerView extends ViewPart {
         xWellChoices = dimensionChoices(value);
         seriesWellChoices = dimensionChoices(value);
         populateDimensionWell(xWell, xWellChoices, selectedRows().stream().findFirst().orElse(null));
-        valueWell.removeAll();
-        valueWell.add("(none)");
-        valueWellIndexes = java.util.stream.IntStream.range(0, value.columns().size())
-                .boxed().toList();
-        for (int index : valueWellIndexes) valueWell.add(value.columns().get(index).displayName());
         populateDimensionWell(seriesWell, seriesWellChoices, selectedColumns().stream().findFirst().orElse(null));
         chartTypeCombo.select(chartTypes.indexOf(configuration.chartType()));
         updateRoleLabels();
-        updateAggregationOptions(value);
-        int valueSelection = valueWellIndexes.indexOf(configuration.valueColumnIndex());
-        valueWell.select(valueSelection < 0 ? 0 : valueSelection + 1);
+        updateValuesButton();
         if (configuration.yAxisMaximum() == null) {
             yMaximumCombo.select(0);
         } else {
@@ -1030,65 +991,25 @@ public final class ResultsVisualizerView extends ViewPart {
         updateHierarchyButton();
     }
 
-    /**
-     * Repopulates the Aggregation combo with only the aggregations that are meaningful for the
-     * currently selected Values column's type (see {@link Aggregation#compatibleWith}), and, if
-     * the configuration's current aggregation is no longer compatible (e.g. the Values column
-     * changed from numeric to a string column), automatically switches it to COUNT so the chart
-     * keeps rendering instead of silently keeping an invalid aggregation.
-     */
-    private void updateAggregationOptions(ResultSetSnapshot value) {
-        int columnIndex = configuration.valueColumnIndex();
-        NormalizedDataType type = columnIndex >= 0 && columnIndex < value.columns().size()
-                ? value.columns().get(columnIndex).normalizedType() : NormalizedDataType.OTHER;
-        availableAggregations = Aggregation.compatibleWith(type);
-        aggregationCombo.removeAll();
-        for (Aggregation aggregation : availableAggregations) aggregationCombo.add(aggregation.toString());
-        Aggregation selectedAggregation = configuration.aggregationFor(columnIndex);
-        if (!availableAggregations.contains(selectedAggregation)) {
-            configuration = configuration.withValueAggregation(columnIndex, Aggregation.COUNT);
-            selectedAggregation = Aggregation.COUNT;
-        }
-        int selection = availableAggregations.indexOf(selectedAggregation);
-        aggregationCombo.select(selection < 0 ? 0 : selection);
-        updateValuesButton();
-    }
-
     private void updateValuesButton() {
         if (valuesButton == null || valuesButton.isDisposed() || configuration == null) return;
         int count = configuration.valueColumnIndexes().size();
         valuesButton.setText(count <= 1 ? "Values…" : "Values… (" + count + ")");
-        if (valueAggregationsButton != null && !valueAggregationsButton.isDisposed()) {
-            valueAggregationsButton.setEnabled(count > 0);
-        }
         valuesButton.getParent().layout(true, true);
     }
 
     private void assignRole(FieldRole role, int index) {
         if (configuration == null || snapshot == null) return;
-        if (role == FieldRole.VALUE) {
-            if (index < 0) {
-                configuration = configuration.withValue(VisualizationConfiguration.UNASSIGNED);
-                matrixValues.clear();
-            } else if (index < valueWellIndexes.size()) {
-                configuration = configuration.withValue(valueWellIndexes.get(index));
-                matrixValues = new ArrayList<>(List.of(
-                        DimensionChoice.result(snapshot, valueWellIndexes.get(index))));
-            } else {
-                return;
-            }
+        List<DimensionChoice> choices = role == FieldRole.X ? xWellChoices : seriesWellChoices;
+        DimensionChoice choice = index < 0 || index >= choices.size() ? null : choices.get(index);
+        if (role == FieldRole.X) {
+            activeXChoice = choice;
+            matrixRows = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+            configuration = configuration.withXColumns(resultIndexes(matrixRows));
         } else {
-            List<DimensionChoice> choices = role == FieldRole.X ? xWellChoices : seriesWellChoices;
-            DimensionChoice choice = index < 0 || index >= choices.size() ? null : choices.get(index);
-            if (role == FieldRole.X) {
-                activeXChoice = choice;
-                matrixRows = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
-                configuration = configuration.withXColumns(resultIndexes(matrixRows));
-            } else {
-                activeSeriesChoice = choice;
-                matrixColumns = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
-                configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
-            }
+            activeSeriesChoice = choice;
+            matrixColumns = choice == null ? new ArrayList<>() : new ArrayList<>(List.of(choice));
+            configuration = configuration.withSeriesColumns(resultIndexes(matrixColumns));
         }
         populateControls(snapshot);
         selectNumericXForScatter();
@@ -1097,25 +1018,15 @@ public final class ResultsVisualizerView extends ViewPart {
 
     private void openValuesDialog() {
         if (snapshot == null || configuration == null) return;
-        ValuesDialog dialog = new ValuesDialog(content.getShell(), snapshot,
-                configuration.valueColumnIndexes());
+        ValuesDialog dialog = new ValuesDialog(content.getShell(), snapshot, configuration);
         if (dialog.open() != Window.OK) return;
         configuration = configuration.withValues(dialog.selected());
+        for (var entry : dialog.aggregations().entrySet()) {
+            configuration = configuration.withValueAggregation(entry.getKey(), entry.getValue());
+        }
         matrixValues = new ArrayList<>(dialog.selected().stream()
                 .map(index -> DimensionChoice.result(snapshot, index)).toList());
         populateControls(snapshot);
-        updateChart();
-    }
-
-    private void openValueAggregationsDialog() {
-        if (snapshot == null || configuration == null || configuration.valueColumnIndexes().isEmpty()) return;
-        ValueAggregationsDialog dialog = new ValueAggregationsDialog(content.getShell(), snapshot, configuration);
-        if (dialog.open() != Window.OK) return;
-        VisualizationConfiguration updated = configuration;
-        for (var entry : dialog.aggregations().entrySet()) {
-            updated = updated.withValueAggregation(entry.getKey(), entry.getValue());
-        }
-        configuration = updated;
         updateChart();
     }
 
@@ -1181,8 +1092,8 @@ public final class ResultsVisualizerView extends ViewPart {
     private void updateMatrixWells() {
         matrixRowsWell.setChoices(dimensionChoices(snapshot), matrixRows);
         matrixColumnsWell.setChoices(dimensionChoices(snapshot), matrixColumns);
-        List<DimensionChoice> values = valueWellIndexes.stream()
-                .map(index -> DimensionChoice.result(snapshot, index)).toList();
+        List<DimensionChoice> values = java.util.stream.IntStream.range(0, snapshot.columns().size())
+                .mapToObj(index -> DimensionChoice.result(snapshot, index)).toList();
         matrixValuesWell.setChoices(values, matrixValues);
     }
 
