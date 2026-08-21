@@ -7,6 +7,8 @@ package com.brianwalker.dbeaver.resultsvisualizer.visualization;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Set;
 import org.junit.Test;
 
@@ -30,5 +32,18 @@ public class SlicerValueTest {
         assertTrue(one.matches(1.0));
         assertTrue(onePointZero.matches(1));
         assertTrue(one.sqlLiteral().equals("1"));
+    }
+
+    @Test
+    public void preservesSemanticEqualityAcrossPresetValueRepresentations() {
+        SlicerValue integer = SlicerValue.fromValue(1);
+        SlicerValue decimal = SlicerValue.fromValue(new BigDecimal("1.00"));
+        SlicerValue date = SlicerValue.fromValue(LocalDate.of(2026, 8, 20));
+        SlicerValue decodedDate = SlicerValue.fromDisplayValue("2026-08-20");
+
+        assertEquals(integer, decimal);
+        assertEquals(integer.hashCode(), decimal.hashCode());
+        assertEquals(date, decodedDate);
+        assertEquals(date.hashCode(), decodedDate.hashCode());
     }
 }

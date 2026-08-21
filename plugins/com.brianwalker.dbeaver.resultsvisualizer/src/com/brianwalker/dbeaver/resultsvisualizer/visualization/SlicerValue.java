@@ -41,6 +41,7 @@ public record SlicerValue(Object rawValue, String displayValue, NormalizedDataTy
         if (sqlNull) return candidate.sqlNull();
         if (candidate.sqlNull) return false;
         if (rawValue == null) return "(null)".equals(candidate.displayValue());
+        if (candidate.rawValue == null) return "(null)".equals(displayValue);
         if (candidate.rawValue instanceof Number && rawValue instanceof Number) {
             return new BigDecimal(rawValue.toString()).compareTo(new BigDecimal(candidate.rawValue.toString())) == 0;
         }
@@ -48,6 +49,20 @@ public record SlicerValue(Object rawValue, String displayValue, NormalizedDataTy
             return rawValue.equals(candidate.rawValue);
         }
         return rawValue.equals(candidate.rawValue) || rawValue.toString().equals(candidate.rawValue.toString());
+    }
+
+    /** Preset decoding may normalize an equivalent JDBC value to another Java representation. */
+    @Override public boolean equals(Object other) {
+        return other instanceof SlicerValue value && sqlNull == value.sqlNull && matches(value);
+    }
+
+    @Override public int hashCode() {
+        if (sqlNull) return 31;
+        if (rawValue instanceof Number) {
+            try { return new BigDecimal(rawValue.toString()).stripTrailingZeros().toPlainString().hashCode(); }
+            catch (NumberFormatException ignored) { /* fall through to the stable display form */ }
+        }
+        return rawValue == null ? displayValue.hashCode() : rawValue.toString().hashCode();
     }
 
     public String sqlLiteral() {

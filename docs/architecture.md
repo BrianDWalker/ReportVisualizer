@@ -374,6 +374,18 @@ without changing the immutable-snapshot rendering model:
   compatibility. Release automation pins every external Action to an immutable
   commit and the Maven wrapper verifies its distribution SHA-256.
 
+- **v1.2.1 compact UX refinement**: field wells now contain only source or
+  calculated dimension choices. `DateHierarchyNavigator` owns pure Original
+  through Day selection and drill transitions, while `DateHierarchyProjector`
+  continues to derive labels in an immutable local snapshot without emitting
+  datasource-specific SQL. The builder's SWT children are grouped as Fields,
+  Visual, and Actions rows without adding a sidebar or reducing the chart
+  panel. `SlicerDialog` always includes Select Values in the operator model,
+  dynamically excludes unused table/input controls, and receives the current
+  slicer list so choosing an already-filtered field restores its operator and
+  values before replacement. Clipboard export now treats success as a silent
+  command and retains nested clipboard/image cleanup on every failure path.
+
 Build reproducibility: DBeaver does not publish a version-pinned public p2
 repository for the CE product (only the floating
 `https://dbeaver.io/update/ce/latest/` alias exists; the version-pinned

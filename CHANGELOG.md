@@ -2,6 +2,26 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.1 — 2026-08-20
+
+- Reworked Date Level so an active DATE/DATETIME X, Series, Matrix Row, or
+  Matrix Column directly exposes Original, Year, Quarter, Month, Day, Drill
+  Up, and Drill Down. Field dropdowns now show only real fields; the button
+  reports the active local level without exposing hierarchy implementation
+  details.
+- Restored Select Values for numeric and date slicers, changed the visible
+  not-equals operator to SQL-style `<>`, and made Add/Edit Slicer preload and
+  replace the selected field's existing distinct values or typed predicate.
+  The dialog now packs dynamically and only shows controls used by its mode.
+- Reorganized the compact Visualization Builder into deliberate Fields,
+  Visual, and Actions rows, with multi-value state shown as `Values… (n)`.
+- Copy Image is silent on success and reports only capture or clipboard
+  failures while retaining deterministic SWT image/clipboard cleanup.
+- Expanded regression coverage for every date level and drill transition,
+  numeric/date Select Values availability, slicer edit lookup, SQL-style
+  operator labels, and an exact complete preset round trip after radical
+  state changes.
+
 ## 1.2.0 — 2026-08-20
 
 - Added 100% stacked bar and area renderers, an optional independently scaled

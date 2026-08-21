@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Current release line:** `1.2.0`
+**Current release line:** `1.2.1`
 
 ## Install
 
@@ -46,8 +46,12 @@ Release downloads and checksums are available on the
 - Matrix/Pivot switches those roles to Rows, Values, and Columns, supports
   inline ordered hierarchical Row and Column fields, optional subtotals,
   optional row/column totals, and horizontal/vertical scrolling
-- Result-derived slicers filter distinct field values before local aggregation and warn
-  when the DBeaver row limit may make the local distinct list incomplete
+- Result-derived slicers offer Select Values for text, numeric, and date/time
+  fields before local aggregation and warn when the DBeaver row limit may
+  make the local distinct list incomplete. Numeric/date fields also retain
+  their comparison, range, null, and relative-date predicate modes
+- Add/Edit Slicer preloads and replaces an existing field slicer, including
+  checked distinct values and typed predicate inputs
 - Slicers can preview a full-source `SELECT DISTINCT` query
 - General custom SQL fields accept a reusable database field expression;
   double-clicking a result field inserts valid SQL
@@ -116,6 +120,9 @@ Release downloads and checksums are available on the
   visualization
 - Typed slicers distinguish SQL `NULL` from the literal text `(null)` and
   compare numeric-looking values numerically rather than as raw strings
+- Date Level acts on the active DATE/DATETIME X/Series or Matrix Row/Column
+  directly, with Original, Year, Quarter, Month, Day, Drill Up, and Drill Down;
+  field dropdowns contain only real result fields
 - **Save Preset / Load Preset / Delete Preset** persist and restore the complete
   visualization state per result shape (chart type, ordered rows/columns and
   multi-value Matrix values, aggregation, Y maximum, totals/subtotals, slicers,
@@ -124,7 +131,9 @@ Release downloads and checksums are available on the
   sanitized-name collisions and ignores corrupt entries safely
 - Visualization export: **Save PNG**, **Save JPEG**, **Save SVG**, **Save PDF**,
   and **Copy Image** (to the system clipboard) for the currently rendered
-  chart or matrix, sharing the same on-screen rendering pipeline
+  chart or matrix, sharing the same on-screen rendering pipeline. Copy Image
+  completes silently and opens a dialog only when capture or clipboard
+  transfer fails
 
 ## Known limitations
 

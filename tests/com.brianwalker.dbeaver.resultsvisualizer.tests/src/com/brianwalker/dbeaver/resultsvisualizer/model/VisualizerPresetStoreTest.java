@@ -22,6 +22,7 @@ import com.brianwalker.dbeaver.resultsvisualizer.visualization.ChartDisplayOptio
 import com.brianwalker.dbeaver.resultsvisualizer.calculatedfields.CalculatedFieldDefinition;
 import java.sql.Types;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -161,6 +162,69 @@ public class VisualizerPresetStoreTest {
         store.save("matrix options", snapshot, config, options, List.of(2), List.of(), List.of(), List.of());
 
         assertEquals(options, store.load("matrix options", snapshot).orElseThrow().matrixOptions());
+    }
+
+    @Test
+    public void restoresTheExactCompletePresetAfterRadicalStateChanges() {
+        Preferences prefs = InstanceScope.INSTANCE.getNode(
+                "com.brianwalker.dbeaver.resultsvisualizer.tests." + UUID.randomUUID()).node("presets");
+        VisualizerPresetStore store = new VisualizerPresetStore(prefs);
+        ResultSetSnapshot snapshot = new ResultSetSnapshot("Full preset", List.of(
+                column(0, "Region", Types.VARCHAR, NormalizedDataType.STRING),
+                column(1, "Category", Types.VARCHAR, NormalizedDataType.STRING),
+                column(2, "InvoiceDate", Types.DATE, NormalizedDataType.DATE),
+                column(3, "Revenue", Types.DECIMAL, NormalizedDataType.NUMBER),
+                column(4, "Quantity", Types.INTEGER, NormalizedDataType.INTEGER),
+                column(5, "Cost", Types.DECIMAL, NormalizedDataType.NUMBER),
+                column(6, "ShipDate", Types.DATE, NormalizedDataType.DATE)),
+                List.of(), 0, false, Instant.EPOCH);
+        ChartDisplayOptions chartOptions = new ChartDisplayOptions(true, false, true,
+                ChartDisplayOptions.LegendPosition.RIGHT,
+                ChartDisplayOptions.PieLabelMode.PERCENT, 12);
+        VisualizationConfiguration saved = new VisualizationConfiguration(ChartType.MATRIX,
+                List.of(0, 1), 3, List.of(3, 4), List.of(2), Aggregation.SUM, 12_500.0,
+                chartOptions);
+        MatrixDisplayOptions matrix = new MatrixDisplayOptions(true, false, true, true,
+                MatrixDisplayOptions.Layout.TABULAR, 2, false, true,
+                MatrixDisplayOptions.ConditionalFormat.COLOR_SCALE, true, 20, 132,
+                java.util.Set.of(0), java.util.Set.of("East"));
+        List<SlicerDefinition> slicers = List.of(
+                SlicerDefinition.typed("Region", java.util.Set.of(SlicerValue.fromValue("East"))),
+                SlicerDefinition.typed("Quantity", java.util.Set.of(SlicerValue.fromValue(5))),
+                SlicerDefinition.typed("InvoiceDate", java.util.Set.of(
+                        SlicerValue.fromValue(LocalDate.of(2026, 8, 20)))),
+                SlicerDefinition.predicate("Revenue", SlicerOperator.GREATER_THAN_OR_EQUAL, "100.50", ""),
+                SlicerDefinition.predicate("ShipDate", SlicerOperator.BETWEEN,
+                        "2026-08-01", "2026-08-31"));
+        List<DateHierarchySelection> hierarchies = List.of(
+                new DateHierarchySelection(2, DateHierarchyLevel.MONTH));
+        List<SortRule> sorts = List.of(new SortRule("Revenue", SortRule.Direction.DESC),
+                new SortRule("Region", SortRule.Direction.ASC));
+        List<CalculatedFieldDefinition> formulas = List.of(
+                new CalculatedFieldDefinition("Margin", "Revenue - Cost"));
+
+        store.save("exact state", snapshot, saved, matrix, List.of(3, 4), slicers,
+                hierarchies, sorts, formulas);
+
+        VisualizationConfiguration radicallyChanged = VisualizationConfiguration.empty(ChartType.PIE)
+                .withValue(5).withX(6).withAggregation(Aggregation.COUNT)
+                .withDisplayOptions(ChartDisplayOptions.DEFAULT);
+        assertFalse(saved.equals(radicallyChanged));
+
+        VisualizerPreset restored = store.load("exact state", snapshot).orElseThrow();
+        assertEquals(saved, restored.toConfiguration());
+        assertEquals(matrix, restored.matrixOptions());
+        assertEquals(List.of(3, 4), restored.matrixValueColumnIndexes());
+        assertEquals(slicers, restored.slicers());
+        assertEquals(hierarchies, restored.dateHierarchies());
+        assertEquals(sorts, restored.sortRules());
+        assertEquals(formulas, restored.calculatedFields());
+    }
+
+    private static ResultColumn column(int index, String name, int jdbcType,
+            NormalizedDataType type) {
+        return new ResultColumn(index, name, name, jdbcType, type.name(), type,
+                Nullability.NULLABLE);
     }
 
     private static ResultSetSnapshot snapshot(String sourceName, String... columnNames) {
