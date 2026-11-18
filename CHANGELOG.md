@@ -2,6 +2,20 @@
 
 All notable product releases are documented here. Eclipse/Tycho build qualifiers identify a particular build of a semantic product version.
 
+## 1.2.7 — 2026-11-18
+
+- Pause automatic result observation and chart updates whenever Results
+  Visualizer is hidden, another view/editor is active, or its DBeaver window
+  is in the background or minimized. The service starts paused, detaches its
+  result listener and global SWT filters when inactive, and rejects queued
+  callbacks from earlier activations.
+- Read the latest result once on returning to the view, without rebuilding
+  charts for unchanged data. Explicit Source Query completions are held until
+  reactivation and checked against the current source before display.
+- Dispose all lifecycle listeners and discard pending updates on close.
+- Add regression coverage for inactive event storms, rapid tab switches,
+  window activity, late aggregate completions, and close/reopen lifecycle.
+
 ## 1.2.6 — 2026-08-20
 
 - Fixed the **Values…** scroller to size its row content before display, so

@@ -71,6 +71,8 @@ import org.eclipse.swt.widgets.Group;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Menu;
 import org.eclipse.swt.widgets.MenuItem;
+import org.eclipse.swt.widgets.Listener;
+import org.eclipse.swt.widgets.Shell;
 import org.eclipse.ui.part.ViewPart;
 import org.eclipse.ui.dialogs.ElementListSelectionDialog;
 
@@ -141,6 +143,15 @@ public final class ResultsVisualizerView extends ViewPart {
     private VisualizationConfiguration sourceConfigurationBeforeAggregate;
     private boolean configurationInitialized;
     private ResultSetService resultSetService;
+    private ViewActivityTracker activityTracker;
+    private Shell activityShell;
+    private final Listener activityListener = event -> {
+        if (activityTracker == null) return;
+        switch (event.type) {
+            case SWT.Hide, SWT.Deactivate, SWT.Iconify -> activityTracker.suspend();
+            default -> content.getDisplay().asyncExec(() -> activityTracker.refresh());
+        }
+    };
     private String activeSessionIdentity = "";
     private long sourceGeneration;
     private long nextAggregateRequestId;
@@ -170,6 +181,19 @@ public final class ResultsVisualizerView extends ViewPart {
 
         resultSetService = ResultSetServices.create(getSite().getPage(), parent.getDisplay());
         resultSetService.start(this::applyUpdate);
+        activityShell = content.getShell();
+        activityTracker = new ViewActivityTracker(getSite().getPage(), this,
+                () -> !content.isDisposed() && content.isVisible()
+                        && !activityShell.isDisposed() && activityShell.isVisible()
+                        && !activityShell.getMinimized()
+                        && content.getDisplay().getActiveShell() == activityShell,
+                resultSetService::setActive);
+        for (int type : new int[] { SWT.Activate, SWT.Deactivate, SWT.Iconify,
+                SWT.Deiconify, SWT.Show, SWT.Hide }) {
+            activityShell.addListener(type, activityListener);
+        }
+        content.addListener(SWT.Show, activityListener);
+        content.addListener(SWT.Hide, activityListener);
     }
 
     private void createHeader(Composite parent) {
@@ -1667,6 +1691,17 @@ public final class ResultsVisualizerView extends ViewPart {
 
     @Override
     public void dispose() {
+        if (activityTracker != null) activityTracker.close();
+        if (activityShell != null && !activityShell.isDisposed()) {
+            for (int type : new int[] { SWT.Activate, SWT.Deactivate, SWT.Iconify,
+                    SWT.Deiconify, SWT.Show, SWT.Hide }) {
+                activityShell.removeListener(type, activityListener);
+            }
+        }
+        if (content != null && !content.isDisposed()) {
+            content.removeListener(SWT.Show, activityListener);
+            content.removeListener(SWT.Hide, activityListener);
+        }
         if (resultSetService != null) resultSetService.close();
         visualizerSessionManager.clear();
         DBeaverSqlDialectService.clearQuoteString();

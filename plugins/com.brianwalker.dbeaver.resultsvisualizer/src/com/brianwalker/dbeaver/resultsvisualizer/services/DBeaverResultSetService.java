@@ -56,7 +56,16 @@ final class DBeaverResultSetService
         implements ResultSetService, IResultSetListener, IPartListener2 {
 
     private final IWorkbenchPage page;
-    private final Display display;
+    /** Small UI boundary so lifecycle/queued-callback regressions can run headlessly. */
+    interface UiAccess {
+        boolean isDisposed();
+        void asyncExec(Runnable runnable);
+        void addFilter(int eventType, Listener listener);
+        void removeFilter(int eventType, Listener listener);
+        Control getFocusControl();
+    }
+
+    private final UiAccess display;
     private final Listener workbenchControlListener = event ->
             scheduleUserControllerSelection(event.widget instanceof Control control ? control : null);
 
@@ -69,10 +78,27 @@ final class DBeaverResultSetService
     private boolean extractionRequested;
     private boolean publishUnchangedRequested;
     private boolean userSelectionScheduled;
-    private boolean closed;
+    private boolean started;
+    private boolean active;
+    private boolean controllerListening;
+    private long activityGeneration;
+    private volatile boolean closed;
+    // At most one completed explicit aggregate per retained result session.
+    private final java.util.Map<String, ResultSetUpdate> deferredAggregates =
+            new java.util.LinkedHashMap<>();
     private ResultSetSnapshot lastPublishedSnapshot;
 
     DBeaverResultSetService(IWorkbenchPage page, Display display) {
+        this(page, new UiAccess() {
+            @Override public boolean isDisposed() { return display.isDisposed(); }
+            @Override public void asyncExec(Runnable runnable) { display.asyncExec(runnable); }
+            @Override public void addFilter(int type, Listener listener) { display.addFilter(type, listener); }
+            @Override public void removeFilter(int type, Listener listener) { display.removeFilter(type, listener); }
+            @Override public Control getFocusControl() { return display.getFocusControl(); }
+        });
+    }
+
+    DBeaverResultSetService(IWorkbenchPage page, UiAccess display) {
         this.page = page;
         this.display = display;
     }
@@ -80,11 +106,32 @@ final class DBeaverResultSetService
     @Override
     public void start(Consumer<ResultSetUpdate> updateConsumer) {
         if (closed) throw new IllegalStateException("Result-set service is closed.");
+        if (started) throw new IllegalStateException("Result-set service is already started.");
         this.updateConsumer = updateConsumer;
+        started = true;
         page.addPartListener(this);
-        display.addFilter(SWT.FocusIn, workbenchControlListener);
-        display.addFilter(SWT.Selection, workbenchControlListener);
-        scheduleResolve(true, true);
+    }
+
+    @Override
+    public void setActive(boolean active) {
+        if (closed || !started || this.active == active || display.isDisposed()) return;
+        this.active = active;
+        activityGeneration++;
+        scheduled = false;
+        userSelectionScheduled = false;
+        resolveRequested = false;
+        extractionRequested = false;
+        publishUnchangedRequested = false;
+        if (active) {
+            display.addFilter(SWT.FocusIn, workbenchControlListener);
+            display.addFilter(SWT.Selection, workbenchControlListener);
+            // Catch up once after missed events; identical data needs no new chart build.
+            scheduleResolve(true, false);
+        } else {
+            display.removeFilter(SWT.FocusIn, workbenchControlListener);
+            display.removeFilter(SWT.Selection, workbenchControlListener);
+            stopListening();
+        }
     }
 
     @Override
@@ -95,7 +142,7 @@ final class DBeaverResultSetService
     @Override
     public void setSource(ResultSource source) {
         this.source = java.util.Objects.requireNonNull(source, "source");
-        rememberFocusedGroupingController();
+        if (active) rememberFocusedGroupingController();
         scheduleResolve(true, true);
     }
 
@@ -222,28 +269,44 @@ final class DBeaverResultSetService
         }
     }
 
-    private void publish(ResultSetUpdate update) {
+    void publish(ResultSetUpdate update) {
         if (closed || display.isDisposed()) return;
         display.asyncExec(() -> {
-            if (!closed && !display.isDisposed()) updateConsumer.accept(update);
+            if (closed || display.isDisposed()) return;
+            if (active) {
+                updateConsumer.accept(update);
+            } else {
+                String identity = update.aggregateRequest().sessionIdentity();
+                ResultSetUpdate previous = deferredAggregates.get(identity);
+                if (previous == null || previous.aggregateRequest().requestId() <= update.aggregateRequest().requestId()) {
+                    deferredAggregates.put(identity, update);
+                }
+                while (deferredAggregates.size() > 20) {
+                    deferredAggregates.remove(deferredAggregates.keySet().iterator().next());
+                }
+            }
         });
     }
 
     @Override
     public void close() {
         if (closed) return;
+        setActive(false);
         closed = true;
+        activityGeneration++;
         page.removePartListener(this);
         if (!display.isDisposed()) {
             display.removeFilter(SWT.FocusIn, workbenchControlListener);
             display.removeFilter(SWT.Selection, workbenchControlListener);
         }
         detachController();
+        groupingController = null;
+        deferredAggregates.clear();
         updateConsumer = update -> { };
     }
 
     private void scheduleResolve(boolean extract, boolean publishUnchanged) {
-        if (closed || display.isDisposed()) return;
+        if (!active || closed || display.isDisposed()) return;
         resolveRequested = true;
         extractionRequested |= extract;
         publishUnchangedRequested |= publishUnchanged;
@@ -251,7 +314,7 @@ final class DBeaverResultSetService
     }
 
     private void scheduleAttachedChange() {
-        if (closed || display.isDisposed()) return;
+        if (!active || closed || display.isDisposed()) return;
         extractionRequested = true;
         schedulePendingWork();
     }
@@ -259,7 +322,9 @@ final class DBeaverResultSetService
     private void schedulePendingWork() {
         if (scheduled) return;
         scheduled = true;
+        long generation = activityGeneration;
         display.asyncExec(() -> {
+            if (!active || closed || generation != activityGeneration) return;
             scheduled = false;
             boolean resolve = resolveRequested;
             boolean extract = extractionRequested;
@@ -268,12 +333,19 @@ final class DBeaverResultSetService
             extractionRequested = false;
             publishUnchangedRequested = false;
             resolveAndPublish(resolve, extract, publishUnchanged);
+            // Revalidate the source before applying a completed aggregate so stale
+            // source generations still go through the view's correlation checks.
+            if (active && !closed) {
+                var completed = new ArrayList<>(deferredAggregates.values());
+                deferredAggregates.clear();
+                for (ResultSetUpdate update : completed) updateConsumer.accept(update);
+            }
         });
     }
 
     private void resolveAndPublish(boolean resolve, boolean extractRequested,
             boolean publishUnchanged) {
-        if (closed || display.isDisposed()) return;
+        if (!active || closed || display.isDisposed()) return;
         try {
             IResultSetController activeController = resolve ? findActiveController() : attachedController;
             if (!isUsable(activeController)) {
@@ -288,8 +360,11 @@ final class DBeaverResultSetService
             if (controllerChanged) {
                 detachController();
                 attachedController = activeController;
-                attachedController.addListener(this);
                 lastPublishedSnapshot = null;
+            }
+            if (!controllerListening) {
+                attachedController.addListener(this);
+                controllerListening = true;
             }
             if (controllerChanged || extractRequested) {
                 ResultSetSnapshot extracted = extract(activeController);
@@ -314,11 +389,13 @@ final class DBeaverResultSetService
      * trigger controller rediscovery.
      */
     private void scheduleUserControllerSelection(Control eventControl) {
-        if (closed || display.isDisposed() || eventControl == null || userSelectionScheduled) return;
+        if (!active || closed || display.isDisposed() || eventControl == null || userSelectionScheduled) return;
         userSelectionScheduled = true;
+        long generation = activityGeneration;
         display.asyncExec(() -> {
+            if (!active || closed || generation != activityGeneration) return;
             userSelectionScheduled = false;
-            if (closed || eventControl.isDisposed()) return;
+            if (eventControl.isDisposed()) return;
             IResultSetController candidate = findFocusedController();
             if (!isUsable(candidate) || !isDescendant(eventControl, candidate.getControl())) return;
             if (source == ResultSource.GROUPING) {
@@ -338,6 +415,7 @@ final class DBeaverResultSetService
             detachController();
             attachedController = controller;
             attachedController.addListener(this);
+            controllerListening = true;
             lastPublishedSnapshot = null;
             updateConsumer.accept(ResultSetUpdate.loading());
             ResultSetSnapshot extracted = extract(controller);
@@ -444,16 +522,21 @@ final class DBeaverResultSetService
         return hasMoreData || (configuredLimit > 0 && availableRows > configuredLimit);
     }
 
-    private void detachController() {
-        if (attachedController == null) return;
+    private void stopListening() {
+        if (attachedController == null || !controllerListening) return;
         try {
             attachedController.removeListener(this);
         } catch (RuntimeException error) {
             ResultsVisualizerPlugin.logError("Unable to detach the result-set listener.", error);
         } finally {
-            attachedController = null;
-            lastPublishedSnapshot = null;
+            controllerListening = false;
         }
+    }
+
+    private void detachController() {
+        stopListening();
+        attachedController = null;
+        lastPublishedSnapshot = null;
     }
 
     @Override public void handleResultSetLoad() { scheduleAttachedChange(); }
@@ -461,16 +544,19 @@ final class DBeaverResultSetService
     @Override public void handleResultSetSelectionChange(SelectionChangedEvent event) { }
     @Override public void onModelPrepared() { scheduleAttachedChange(); }
     @Override public void partActivated(IWorkbenchPartReference partRef) {
+        if (!active || closed) return;
         scheduleUserControllerSelection(display.getFocusControl());
     }
     @Override public void partBroughtToTop(IWorkbenchPartReference partRef) {
+        if (!active || closed) return;
         scheduleUserControllerSelection(display.getFocusControl());
     }
     @Override public void partClosed(IWorkbenchPartReference partRef) {
+        if (!active || closed) return;
         IWorkbenchPart part = partRef == null ? null : partRef.getPart(false);
         if (part == null) return;
         IResultSetController controller = ResultSetHandlerMain.getActiveResultSet(part);
-        if (controller == attachedController || controller == groupingController) {
+        if (controller != null && (controller == attachedController || controller == groupingController)) {
             detachController();
             if (source == ResultSource.GROUPING) groupingController = null;
             updateConsumer.accept(ResultSetUpdate.noActiveResult());
@@ -480,6 +566,7 @@ final class DBeaverResultSetService
     @Override public void partDeactivated(IWorkbenchPartReference partRef) { }
     @Override public void partHidden(IWorkbenchPartReference partRef) { }
     @Override public void partInputChanged(IWorkbenchPartReference partRef) {
+        if (!active || closed) return;
         IWorkbenchPart part = partRef == null ? null : partRef.getPart(false);
         if (part != null && ResultSetHandlerMain.getActiveResultSet(part) == attachedController) {
             scheduleAttachedChange();

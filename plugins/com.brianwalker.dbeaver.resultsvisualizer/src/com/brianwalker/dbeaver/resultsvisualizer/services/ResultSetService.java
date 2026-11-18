@@ -10,6 +10,8 @@ import java.util.function.Consumer;
 /** Lifecycle boundary between the UI and the active DBeaver result set. */
 public interface ResultSetService extends AutoCloseable {
     void start(Consumer<ResultSetUpdate> updateConsumer);
+    /** Enables observation only while the owning view is actively in use. Starts paused. */
+    void setActive(boolean active);
     void setSource(ResultSource source);
     String sourceQuery();
     boolean previewQuery(String title, String sql);

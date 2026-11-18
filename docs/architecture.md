@@ -47,6 +47,19 @@ exported `IResultSetController`, `IResultSetListener`, and
 for result loads/model changes plus Eclipse part and SWT focus/selection events;
 it does not poll continuously.
 
+As of 1.2.7, `ViewActivityTracker` enables observation only when Results
+Visualizer is the active, visible workbench part in the foreground,
+non-minimized window. The service starts paused. On suspension it removes
+its result listener and SWT filters, and invalidates queued discovery/copy
+callbacks with an activation generation. Lightweight workbench/shell
+lifecycle listeners remain to detect reactivation; there is no idle timer.
+Reactivation coalesces one fresh source read and compares against the last
+published snapshot before triggering any projection or chart rebuild.
+Explicit Source Query jobs can finish while inactive; a bounded completion
+buffer is drained after source revalidation on return, retaining existing
+request/session generation checks. Closing removes listeners, clears the
+buffer and controller references, and makes late callbacks inert.
+
 The adapter converts DBeaver bindings and rows immediately into immutable
 plug-in models (`ResultSetSnapshot`, `ResultColumn`, and `ResultRow`). The view,
 future chart code, and future calculated-field code never retain DBeaver result

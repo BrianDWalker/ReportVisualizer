@@ -7,7 +7,7 @@ separate service.
 
 [![Latest release](https://img.shields.io/github/v/release/BrianDWalker/ReportVisualizer?display_name=tag&include_prereleases=false)](https://github.com/BrianDWalker/ReportVisualizer/releases/latest)
 
-**Current release line:** `1.2.6`
+**Current release line:** `1.2.7`
 
 ## Install
 
@@ -93,7 +93,13 @@ Release downloads and checksums are available on the
   null without interrupting the remaining rows or visualization
 - Uses a compact theme-integrated visualization builder without stretched
   background bands
-- Refreshes after query reruns, result changes, and result-tab switches
+- Refreshes only while Results Visualizer is the active workbench view in the
+  foreground, non-minimized DBeaver window. Hidden tabs, other active views or
+  SQL editors, background/minimized windows, and closed views do no automatic
+  result copying or chart rebuilding. Returning to the view reads the latest
+  result once; unchanged data keeps the existing visualization. Explicit Source
+  Query executions may finish in the background, with their results applied
+  when you return
 - Graceful `No active result set available.` state
 - Plug-in-owned immutable snapshots keep DBeaver objects out of visualization code
 - Local views use exactly the rows fetched by DBeaver after its
